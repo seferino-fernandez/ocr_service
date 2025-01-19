@@ -1,0 +1,83 @@
+[package]
+name = "ocr_service"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+path = "src/main.rs"
+name = "ocr_service"
+
+[dependencies]
+tokio = { version = "1.43.0", features = ["full"] }
+axum = { version = "0.8.1", features = ["multipart"] }
+tower = { version = "0.5.2", features = [] }
+tower-http = { version = "0.6.2", features = [
+    "trace",
+    "timeout",
+    "cors",
+    "normalize-path",
+    "limit",
+] }
+http = "1.2.0"
+http-body = "1.0.1"
+http-body-util = "0.1.2"
+hyper = "1.5.2"
+reqwest = { version = "0.12.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+tonic = { version = "0.12.3", features = ["tls", "tls-native-roots"] }
+futures-util = "0.3.31"
+pin-project-lite = "0.2.16"
+chrono = { version = "0.4.39", features = ["serde"] }
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.135"
+uuid = { version = "1.12.0", features = ["v7", "serde"] }
+dotenvy = "0.15.7"
+anyhow = "1.0.95"
+thiserror = "2.0.11"
+tesseract-rs = { version = "0.1.19", features = ["build-tesseract"] }
+image = "0.25.5"
+
+# OpenTelemetry
+opentelemetry = { version = "0.27.1", features = ["logs", "metrics", "trace", "internal-logs"] }
+opentelemetry_sdk = { version = "0.27.1", features = ["rt-tokio", "logs", "metrics", "trace", "spec_unstable_metrics_views"] }
+opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_experimental"] }
+opentelemetry-otlp = { version = "0.27.0", default-features = false, features = [
+  "logs",
+  "metrics",
+  "trace",
+  "grpc-tonic",
+  "tls-roots",
+] }
+opentelemetry-http = "0.27.0"
+opentelemetry-appender-tracing = { version = "0.27.0" }
+tower-otel-http-metrics = { version = "0.10.0", default-features = false, features = ["axum"] }
+
+# Tracing
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter"] }
+tracing-opentelemetry = { version = "0.28.0", features = ["metrics"] }
+
+# OpenAPI Documentation
+utoipa-axum = "0.2.0"
+utoipa = "5.3.1"
+utoipa-scalar = { version = "0.3.0", features = ["axum"] }
+
+[dev-dependencies]
+insta = { version = "1.42.0", features = ["yaml"] }
+
+[profile.dev.package]
+# Insta: Faster runs https://insta.rs/docs/quickstart/#optional-faster-runs
+insta.opt-level = 3
+
+[profile.release]
+opt-level = "z"   # Optimize for size.
+strip = true      # Automatically strip symbols from the binary.
+lto = true        # Enable Link Time Optimization (LTO)
+codegen-units = 1 # Reduce Parallel Code Generation Units to Increase Optimization
+panic = "abort"

@@ -1,0 +1,18 @@
+# Rust and Cargo
+debug/
+target/
+**/*.rs.bk
+*.pdb
+
+# MacOS
+.DS_Store
+
+# Environment variables
+!.env.example
+.env
+.env.local
+.env.development
+.env.production
+
+# Notes
+notes/
