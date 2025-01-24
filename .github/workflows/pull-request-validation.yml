@@ -5,12 +5,12 @@ on:
     branches: ["main"]
     paths-ignore:
       - "README.md"
-      - Dockerfile
+      - "Dockerfile"
   pull_request:
     branches: ["main"]
     paths-ignore:
       - "README.md"
-      - Dockerfile
+      - "Dockerfile"
 
 env:
   CARGO_TERM_COLOR: always
@@ -29,8 +29,8 @@ jobs:
         with:
           components: clippy,rustfmt
 
-      - name: Install cargo-nextest
-	      uses: taiki-e/install-action@cargo-nextest
+      - name: Install cargo nextest
+        uses: taiki-e/install-action@cargo-nextest
 
       - name: Check formatting
         run: cargo fmt --all --check
@@ -43,4 +43,3 @@ jobs:
 
       - name: Build
         run: cargo build --release
-        if: github.ref == 'refs/heads/main'
