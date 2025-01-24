@@ -69,7 +69,7 @@ utoipa = "5.3.1"
 utoipa-scalar = { version = "0.3.0", features = ["axum"] }
 
 [dev-dependencies]
-insta = { version = "1.42.0", features = ["yaml"] }
+insta = { version = "1.42.0", features = ["yaml", "filters"] }
 
 [profile.dev.package]
 # Insta: Faster runs https://insta.rs/docs/quickstart/#optional-faster-runs
