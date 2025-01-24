@@ -17,7 +17,7 @@ The full list of crates used can be found in the [Cargo.toml](./Cargo.toml) file
 
 #### Environment Variables
 
-You can use the [.env.example](./.env.example) file or [src/config/app_config.rs](./src/config/app_config.rs) view and configure the application.
+You can use the [.env.example](./.env.example) file or [src/config/app_config.rs](./src/config/app_config.rs) to view and configure the application.
 
 #### Download Tesseract Data Files
 
