@@ -1282,6 +1282,7 @@ dependencies = [
  "console",
  "linked-hash-map",
  "once_cell",
+ "regex",
  "serde",
  "similar",
 ]

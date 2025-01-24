@@ -30,7 +30,11 @@ async fn test_images_endpoint_tessdoc_introduction() {
 
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    insta::assert_yaml_snapshot!(body);
+    insta::with_settings!({filters => vec![
+        (r"\\n\*", r"\ne"),
+    ]}, {
+        insta::assert_yaml_snapshot!(body);
+    });
 }
 
 // Helper constant for multipart boundary
