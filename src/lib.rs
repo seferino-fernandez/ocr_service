@@ -11,7 +11,7 @@ use middleware::{security, server};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_scalar::{Scalar, Servable as _};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct AppState {
     pub app_config: AppConfig,

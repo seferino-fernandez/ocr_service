@@ -1,12 +1,9 @@
+use crate::AppState;
+use axum::extract::{Json, Multipart, Query, State};
 use std::{
     env::current_dir,
     io::{Cursor, Error},
     path::PathBuf,
-};
-
-use axum::{
-    extract::{Multipart, Query},
-    Json,
 };
 
 use image::ImageReader;
@@ -46,6 +43,7 @@ const BYTES_PER_PIXEL: u32 = 3;
 )]
 #[tracing::instrument]
 pub async fn images(
+    State(state): State<AppState>,
     Query(params): Query<ImagesQueryParams>,
     mut multipart: Multipart,
 ) -> Result<Json<ImagesResponse>, ErrorType> {
@@ -102,7 +100,7 @@ pub async fn images(
         .map_err(|error: Error| {
             ErrorType::InternalError(anyhow::anyhow!("Failed to get current directory: {error}"))
         })?
-        .join("tesseract");
+        .join(state.app_config.tesseract.data_path);
     tracing::debug!(
         "Using language {} and resource path {} for Tesseract",
         ocr_language,

@@ -64,7 +64,12 @@ pub async fn initialize_opentelemetry_providers(
     app_config: &AppConfig,
 ) -> Result<OtelGuard, Error> {
     if !app_config.otel.enabled {
-        tracing::info!("OpenTelemetry is disabled");
+        tracing::info!("OpenTelemetry is disabled, only stdout logging will be used");
+        let stdout_fmt_layer = stdout_layer(app_config);
+        let subscriber = Registry::default().with(stdout_fmt_layer);
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("Could not set up global logger");
+
         return Ok(OtelGuard {
             tracer_provider: None,
             logging_provider: None,
@@ -91,16 +96,7 @@ pub async fn initialize_opentelemetry_providers(
         .with_error_records_to_exceptions(true)
         .with_filter(otel_env_filter());
 
-    let stdout_fmt_layer = tracing_subscriber::fmt::layer()
-        .pretty()
-        .with_writer(std::io::stdout)
-        .with_ansi(true)
-        .with_thread_ids(true)
-        .with_level(true)
-        .with_file(true)
-        .with_line_number(true)
-        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
-        .with_filter(stdout_env_filter());
+    let stdout_fmt_layer = stdout_layer(app_config);
 
     // Initialize OpenTelemetry Metrics provider
     let meter_provider = init_meter_provider(app_config)?;
@@ -139,6 +135,24 @@ fn otel_env_filter() -> EnvFilter {
         .add_directive("tonic=off".parse().unwrap())
         .add_directive("h2=off".parse().unwrap())
         .add_directive("reqwest=off".parse().unwrap())
+}
+
+fn stdout_layer(app_config: &AppConfig,) -> impl Layer<tracing_subscriber::Registry> {
+    tracing_subscriber::fmt::layer()
+        .pretty()
+        .with_writer(std::io::stdout)
+        .with_ansi(true)
+        .with_thread_ids(true)
+        .with_level(true)
+        .with_file(true)
+        .with_line_number(true)
+        // Only log spans when otel is enabled
+        .with_span_events(if app_config.otel.enabled {
+            FmtSpan::NEW | FmtSpan::CLOSE
+        } else {
+            FmtSpan::NONE
+        })
+        .with_filter(stdout_env_filter())
 }
 
 // Create a new tracing::Fmt layer to print the logs to stdout. It has a

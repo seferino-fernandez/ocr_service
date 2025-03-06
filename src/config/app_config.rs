@@ -14,6 +14,8 @@ const DEFAULT_SERVICE_NAME: &str = "ocr-service";
 
 const DEFAULT_MAX_ACCESS_CONTROL_AGE: u64 = 600;
 
+const DEFAULT_TESSERACT_DATA_PATH: &str = "tesseract";
+
 pub fn app_config() -> &'static AppConfig {
     static INSTANCE: OnceLock<AppConfig> = OnceLock::new();
 
@@ -30,6 +32,7 @@ pub struct AppConfig {
     pub security: SecurityConfig,
     pub otel: OtelConfig,
     pub otel_provider: OtelProviderConfig,
+    pub tesseract: TesseractConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +70,11 @@ pub struct OtelConfig {
     pub logs_endpoint: Option<String>,
     pub metrics_endpoint: Option<String>,
     pub metric_export_interval: Option<Duration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TesseractConfig {
+    pub data_path: String,
 }
 
 impl AppConfig {
@@ -120,6 +128,10 @@ impl AppConfig {
                 organization: env::var("OTEL_PROVIDER_ORGANIZATION").ok(),
                 stream_name: env::var("OTEL_PROVIDER_STREAM_NAME").ok(),
                 auth_token: env::var("OTEL_PROVIDER_AUTH_TOKEN").ok(),
+            },
+            tesseract: TesseractConfig {
+                data_path: env::var("TESSDATA_PATH")
+                    .unwrap_or(DEFAULT_TESSERACT_DATA_PATH.to_string()),
             },
         })
     }

@@ -9,9 +9,12 @@ err() {
     echo "[$(date +'%Y-%m-%dT%H:%M:%S%z')]: $*" >&2
 }
 
-# Check if tesseract directory exists, create it if not
-if ! mkdir -p ./tesseract; then
-    err "Error creating directory. Exiting."
+# Get the download directory from TESSDATA_PATH environment variable or default to ./tesseract
+DOWNLOAD_DIR="${TESSDATA_PATH:-./tesseract}"
+
+# Check if download directory exists, create it if not
+if ! mkdir -p "$DOWNLOAD_DIR"; then
+    err "Error creating directory '$DOWNLOAD_DIR'. Exiting."
     exit 1
 fi
 
@@ -36,8 +39,8 @@ readonly BEST_TESSDATA_URL="https://github.com/tesseract-ocr/tessdata_best/raw/r
 download_lang() {
     local lang="$1"
     local url="$DEFAULT_TESSDATA_URL/$lang.traineddata"
-    if wget -qO "./tesseract/$lang.traineddata" "$url"; then
-        echo "Downloaded $lang.traineddata"
+    if wget -qO "$DOWNLOAD_DIR/$lang.traineddata" "$url"; then
+        echo "Downloaded $lang.traineddata to $DOWNLOAD_DIR"
     else
         err "Failed to download $lang.traineddata"
     fi
@@ -50,6 +53,9 @@ help_command() {
     echo "         eng chi_sim chi_tra ...: Downloads the specified languages (English, Chinese Simplified, Chinese Traditional, etc)."
     echo "  --list: Lists all available languages."
     echo "  --help: Displays this help message."
+    echo ""
+    echo "Note: Files will be downloaded to the directory specified by TESSDATA_PATH environment variable"
+    echo "      (defaults to ./tesseract if not set)."
 }
 
 list_languages() {

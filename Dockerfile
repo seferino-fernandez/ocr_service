@@ -31,7 +31,9 @@ RUN apt-get update -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/tesseract /app/tesseract
+ARG TESSDATA_PATH=tesseract
+
+COPY --from=builder /app/$TESSDATA_PATH $TESSDATA_PATH
 COPY --from=builder /app/target/release/ocr_service ocr_service
 
 EXPOSE 8080
