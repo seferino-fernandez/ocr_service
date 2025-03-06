@@ -137,7 +137,7 @@ fn otel_env_filter() -> EnvFilter {
         .add_directive("reqwest=off".parse().unwrap())
 }
 
-fn stdout_layer(app_config: &AppConfig,) -> impl Layer<tracing_subscriber::Registry> {
+fn stdout_layer(app_config: &AppConfig) -> impl Layer<tracing_subscriber::Registry> {
     tracing_subscriber::fmt::layer()
         .pretty()
         .with_writer(std::io::stdout)
