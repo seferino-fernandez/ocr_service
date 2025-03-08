@@ -1,0 +1,17 @@
+---
+source: tests/api/languages.rs
+expression: body
+---
+languages:
+  - full_path: tesseract/chi_sim/chi_sim.traineddata
+    language: chi_sim
+    model: chi_sim
+    relative_path: chi_sim/chi_sim
+  - full_path: tesseract/chi_sim/chi_sim_vert.traineddata
+    language: chi_sim
+    model: chi_sim_vert
+    relative_path: chi_sim/chi_sim_vert
+  - full_path: tesseract/eng.traineddata
+    language: eng
+    model: ~
+    relative_path: eng

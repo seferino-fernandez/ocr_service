@@ -4,12 +4,12 @@ This repository contains OCR Service built using [Axum](https://github.com/tokio
 
 The full list of crates used can be found in the [Cargo.toml](./Cargo.toml) file. However, here are some key ones:
 
-- [axum](https://github.com/tokio-rs/axum) - A user-friendly, modular web framework built with Tokio, Tower, and Hyper.
-- [tesseract-rs](https://github.com/cafercangundogdu/tesseract-rs) - A library for OCR using Tesseract Rust bindings.
-- [image](https://github.com/image-rs/image) - An image processing library for Rust.
-- [Insta](https://insta.rs/) - A library for snapshot testing in Rust.
-- [utoipa](https://github.com/juhaku/utoipa) - A library for generating OpenAPI documentation in Rust.
-- [opentelemetry-rust](https://github.com/open-telemetry/opentelemetry-rust) - OpenTelemetry for Rust.
+-   [axum](https://github.com/tokio-rs/axum) - A user-friendly, modular web framework built with Tokio, Tower, and Hyper.
+-   [tesseract-rs](https://github.com/cafercangundogdu/tesseract-rs) - A library for OCR using Tesseract Rust bindings.
+-   [image](https://github.com/image-rs/image) - An image processing library for Rust.
+-   [Insta](https://insta.rs/) - A library for snapshot testing in Rust.
+-   [utoipa](https://github.com/juhaku/utoipa) - A library for generating OpenAPI documentation in Rust.
+-   [opentelemetry-rust](https://github.com/open-telemetry/opentelemetry-rust) - OpenTelemetry for Rust.
 
 ## Getting Started
 
@@ -28,8 +28,8 @@ The `TESSDATA_PATH` environment variable allows you to specify where the Tessera
 
 The OCR Service requires the Tesseract data files to be downloaded into the [tesseract](./tesseract) directory. You can download the files manually via these repositories:
 
-- [tesseract-ocr/tessdata](https://github.com/tesseract-ocr/tessdata)
-- [tesseract-ocr/tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast)
+-   [tesseract-ocr/tessdata](https://github.com/tesseract-ocr/tessdata)
+-   [tesseract-ocr/tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast)
 
 Or by running the [scripts/download-tessdata.sh](./scripts/README.md) script.
 
@@ -93,12 +93,12 @@ If using Docker Compose, you can specify the custom path in the compose file:
 
 ```yaml
 services:
-  ocr_service:
-    build:
-      context: ../
-      args:
-        - TESSDATA_PATH=your/custom/path
-      dockerfile: Dockerfile
+    ocr_service:
+        build:
+            context: ../
+            args:
+                - TESSDATA_PATH=your/custom/path
+            dockerfile: Dockerfile
 ```
 
 Make sure the `TESSDATA_PATH` build argument matches the environment variable you've set in your `.env` file.
@@ -113,7 +113,20 @@ The API documentation is available at [http://localhost:8080/api-docs](http://lo
 
 ```bash
 curl -X POST -F "image=@./tests/images/tessdoc-introduction.png" \
-http://localhost:8080/api/v1/images
+"http://localhost:8080/api/v1/images?language=eng"
+```
+
+**Send a file to the `/api/v1/images` endpoint to process the image with a specific model.**
+
+```bash
+curl -X POST -F "image=@./tests/images/chinese-simplified-sign.jpg" \
+"http://localhost:8080/api/v1/images?language=chi_sim&model=chi_sim"
+```
+
+**Get all available languages and models.**
+
+```bash
+curl http://localhost:8080/api/v1/languages
 ```
 
 ### Health Check

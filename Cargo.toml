@@ -42,6 +42,7 @@ anyhow = "1.0.95"
 thiserror = "2.0.11"
 tesseract-rs = { version = "0.1.19", features = ["build-tesseract"] }
 image = "0.25.5"
+walkdir = "2.5.0"
 
 # OpenTelemetry
 opentelemetry = { version = "0.27.1", features = ["logs", "metrics", "trace", "internal-logs"] }
@@ -69,7 +70,8 @@ utoipa = "5.3.1"
 utoipa-scalar = { version = "0.3.0", features = ["axum"] }
 
 [dev-dependencies]
-insta = { version = "1.42.0", features = ["yaml", "filters"] }
+insta = { version = "1.42.2", features = ["yaml", "filters"] }
+tempfile = "3.18.0"
 
 [profile.dev.package]
 # Insta: Faster runs https://insta.rs/docs/quickstart/#optional-faster-runs
