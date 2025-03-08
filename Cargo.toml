@@ -1,6 +1,6 @@
 [package]
 name = "ocr_service"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 publish = false
 
@@ -12,7 +12,7 @@ path = "src/main.rs"
 name = "ocr_service"
 
 [dependencies]
-tokio = { version = "1.43.0", features = ["full"] }
+tokio = { version = "1.44.0", features = ["full"] }
 axum = { version = "0.8.1", features = ["multipart"] }
 tower = { version = "0.5.2", features = [] }
 tower-http = { version = "0.6.2", features = [
@@ -25,7 +25,7 @@ tower-http = { version = "0.6.2", features = [
 http = "1.2.0"
 http-body = "1.0.1"
 http-body-util = "0.1.2"
-hyper = "1.5.2"
+hyper = "1.6.0"
 reqwest = { version = "0.12.12", default-features = false, features = [
     "json",
     "rustls-tls",
@@ -33,13 +33,13 @@ reqwest = { version = "0.12.12", default-features = false, features = [
 tonic = { version = "0.12.3", features = ["tls", "tls-native-roots"] }
 futures-util = "0.3.31"
 pin-project-lite = "0.2.16"
-chrono = { version = "0.4.39", features = ["serde"] }
-serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.135"
-uuid = { version = "1.12.0", features = ["v7", "serde"] }
+chrono = { version = "0.4.40", features = ["serde"] }
+serde = { version = "1.0.218", features = ["derive"] }
+serde_json = "1.0.140"
+uuid = { version = "1.15.1", features = ["v7", "serde"] }
 dotenvy = "0.15.7"
-anyhow = "1.0.95"
-thiserror = "2.0.11"
+anyhow = "1.0.97"
+thiserror = "2.0.12"
 tesseract-rs = { version = "0.1.19", features = ["build-tesseract"] }
 image = "0.25.5"
 walkdir = "2.5.0"

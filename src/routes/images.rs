@@ -39,7 +39,7 @@ const BYTES_PER_PIXEL: u32 = 3;
    ),
     tag = "images",
 )]
-#[tracing::instrument]
+#[tracing::instrument(skip(state))]
 pub async fn images(
     State(state): State<AppState>,
     Query(params): Query<ImagesQueryParams>,

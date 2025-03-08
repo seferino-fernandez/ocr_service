@@ -18,7 +18,7 @@ use crate::AppState;
    ),
     tag = "languages",
 )]
-#[tracing::instrument]
+#[tracing::instrument(skip(state))]
 pub async fn languages(
     State(state): State<AppState>,
 ) -> Result<Json<LanguagesResponse>, ErrorType> {
