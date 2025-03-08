@@ -22,4 +22,6 @@ pub struct ImagesForm {
 pub struct ImagesQueryParams {
     /// (Optional) The language to use for the OCR. Defaults to "eng".
     pub language: Option<String>,
+    /// (Optional) The model to use for the OCR. Defaults to "eng".
+    pub model: Option<String>,
 }

@@ -1,22 +1,20 @@
-use crate::AppState;
-use axum::extract::{Json, Multipart, Query, State};
-use std::{
-    env::current_dir,
-    io::{Cursor, Error},
-    path::PathBuf,
+use crate::{
+    models::{
+        error::ErrorType,
+        images::{ImagesForm, ImagesQueryParams, ImagesResponse},
+    },
+    utils::validations::{validate_file_type, validate_language_params},
+    AppState,
 };
-
+use axum::{
+    extract::{Multipart, Query, State},
+    response::Json,
+};
 use image::ImageReader;
+use std::io::Cursor;
+use std::path::PathBuf;
 use tesseract_rs::TesseractAPI;
 
-use crate::models::{
-    error::ErrorType,
-    images::{ImagesForm, ImagesQueryParams, ImagesResponse},
-};
-
-use crate::utils::validations::{validate_file_type, validate_language};
-
-const DEFAULT_OCR_LANGUAGE: &str = "eng";
 const BYTES_PER_PIXEL: u32 = 3;
 
 /// Perform OCR on an image
@@ -47,15 +45,25 @@ pub async fn images(
     Query(params): Query<ImagesQueryParams>,
     mut multipart: Multipart,
 ) -> Result<Json<ImagesResponse>, ErrorType> {
-    tracing::debug!("Request received to perform OCR on image");
-    let mut ocr_language = DEFAULT_OCR_LANGUAGE.to_owned();
-    // Validate the language if it was provided
-    if let Some(language) = params.language {
-        validate_language(&language)?;
-        ocr_language = language;
-    } else {
-        tracing::debug!("No language provided, defaulting to {}", ocr_language);
-    }
+    tracing::debug!("Request received to perform OCR on image: {:?}", params);
+    let default_language = state.app_config.service.default_language.to_owned();
+
+    // Validate language parameters and get appropriate TesseractModel
+    let tesseract_model = validate_language_params(
+        &params,
+        &state.available_tesseract_languages,
+        &default_language,
+    )?;
+
+    // Log which language we're using
+    tracing::debug!(
+        "Using language {} for OCR",
+        if let Some(model) = &tesseract_model.model {
+            format!("{} (model: {})", tesseract_model.language, model)
+        } else {
+            tesseract_model.language.clone()
+        }
+    );
 
     let field = multipart
         .next_field()
@@ -65,25 +73,34 @@ pub async fn images(
 
     if let Some(content_type) = field.content_type() {
         validate_file_type(content_type)?;
-        tracing::debug!("Valid content type: {}", content_type);
     } else {
         return Err(ErrorType::InvalidRequest(
             "No content type provided for given file".to_owned(),
         ));
     }
 
-    let image_data = field
+    let file_content = field
         .bytes()
         .await
-        .map_err(|multipart_error| ErrorType::InvalidRequest(multipart_error.to_string()))?;
-    tracing::debug!("Retrieved image data");
+        .map_err(|extract_error| ErrorType::InvalidRequest(extract_error.to_string()))?;
 
-    let img = ImageReader::new(Cursor::new(image_data))
+    // Instantiate the Tesseract API
+    let tesseract_api = TesseractAPI::new();
+
+    // Get the $TESSDATA_PATH environment variable stored in the AppConfig
+    let resource_path = PathBuf::from(&state.app_config.tesseract.data_path);
+
+    tracing::debug!(
+        "Using language {} and resource path {}",
+        tesseract_model.language,
+        resource_path.to_str().unwrap_or_default()
+    );
+
+    let img = ImageReader::new(Cursor::new(file_content))
         .with_guessed_format()
         .map_err(|error| ErrorType::InvalidRequest(error.to_string()))?
         .decode()
         .map_err(|image_error| ErrorType::InvalidRequest(image_error.to_string()))?;
-    tracing::debug!("Decoded image successfully");
 
     // Convert the image to RGB8 and gather image dimensions for Tesseract
     let rgb_image = img.to_rgb8();
@@ -92,28 +109,24 @@ pub async fn images(
         ErrorType::InvalidRequest(format!("Image dimensions are too large: {error}"))
     })?;
     let raw_image_data = rgb_image.into_raw();
-    tracing::debug!("Successfully converted to raw image data.");
+    let language_model_path = tesseract_model.relative_path.unwrap_or_default();
 
-    let tesseract_api = TesseractAPI::new();
-    tracing::debug!("Initialized Tesseract");
-    let resource_path: PathBuf = current_dir()
-        .map_err(|error: Error| {
-            ErrorType::InternalError(anyhow::anyhow!("Failed to get current directory: {error}"))
-        })?
-        .join(state.app_config.tesseract.data_path);
     tracing::debug!(
-        "Using language {} and resource path {} for Tesseract",
-        ocr_language,
-        resource_path.to_str().unwrap()
+        "Initializing Tesseract API with path: {} and language: {}",
+        resource_path.to_str().unwrap_or_default(),
+        language_model_path
     );
     tesseract_api
-        .init(resource_path.to_str().unwrap(), &ocr_language)
+        .init(
+            resource_path.to_str().unwrap_or_default(),
+            language_model_path.as_str(),
+        )
         .map_err(|tess_error| {
             ErrorType::InternalError(anyhow::anyhow!(
                 "Something went wrong while performing OCR: {tess_error}"
             ))
         })?;
-    tracing::debug!("Initialized Tesseract with resource path");
+
     tesseract_api
         .set_image(
             &raw_image_data,
@@ -131,11 +144,12 @@ pub async fn images(
                 "Something went wrong while processing the image: {tess_error}"
             ))
         })?;
-    tracing::debug!("Set image in Tesseract");
+
     let text = tesseract_api.get_utf8_text().map_err(|tess_error| {
         ErrorType::InvalidRequest(format!(
             "Something went wrong while extracting the text: {tess_error}"
         ))
     })?;
+
     Ok(Json(ImagesResponse { text }))
 }

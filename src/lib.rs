@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use opentelemetry::global;
 use utoipa::OpenApi;
 pub mod config;
@@ -8,6 +10,8 @@ pub mod utils;
 
 use config::app_config::AppConfig;
 use middleware::{security, server};
+use models::languages::TesseractModel;
+use utils::languages::get_available_languages_with_models;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_scalar::{Scalar, Servable as _};
 
@@ -15,6 +19,7 @@ use utoipa_scalar::{Scalar, Servable as _};
 #[non_exhaustive]
 pub struct AppState {
     pub app_config: AppConfig,
+    pub available_tesseract_languages: HashSet<TesseractModel>,
 }
 
 #[derive(OpenApi)]
@@ -25,17 +30,25 @@ pub struct AppState {
     ),
     tags(
         (name = "health", description = "Health API"),
-        (name = "images", description = "Images API")
+        (name = "images", description = "Images API"),
+        (name = "languages", description = "Languages API"),
     )
 )]
 struct ApiDoc;
 
 pub fn router(app_config: AppConfig) -> axum::Router {
-    let app_state = AppState { app_config };
+    let available_tesseract_languages = get_available_languages_with_models(&app_config)
+        .expect("Failed to get available Tesseract languages");
+
+    let app_state = AppState {
+        app_config,
+        available_tesseract_languages,
+    };
 
     // Create the router with the routes and the OpenAPI documentation.
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .nest("/api", routes::ImagesApi::router())
+        .nest("/api", routes::LanguagesApi::router())
         .nest("/system", routes::HealthApi::router())
         .split_for_parts();
 

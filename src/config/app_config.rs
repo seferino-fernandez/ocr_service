@@ -11,6 +11,7 @@ const DEFAULT_SERVER_FILE_UPLOAD_MAX_SIZE: usize = 1024 * 1024 * 10;
 const DEFAULT_SERVER_ENVIRONMENT: &str = "development";
 
 const DEFAULT_SERVICE_NAME: &str = "ocr-service";
+const DEFAULT_SERVICE_DEFAULT_LANGUAGE: &str = "eng";
 
 const DEFAULT_MAX_ACCESS_CONTROL_AGE: u64 = 600;
 
@@ -52,6 +53,7 @@ pub struct SecurityConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceConfig {
     pub name: String,
+    pub default_language: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +103,8 @@ impl AppConfig {
             },
             service: ServiceConfig {
                 name: env::var("SERVICE_NAME").unwrap_or(DEFAULT_SERVICE_NAME.to_string()),
+                default_language: env::var("SERVICE_DEFAULT_LANGUAGE")
+                    .unwrap_or(DEFAULT_SERVICE_DEFAULT_LANGUAGE.to_string()),
             },
             security: SecurityConfig {
                 max_access_control_age: Duration::from_secs(
