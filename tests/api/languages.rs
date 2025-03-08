@@ -7,7 +7,7 @@ use crate::helpers::*;
 async fn test_languages_ok() {
     let app = TestApp::new();
 
-    let req = Request::get("/api/languages").body(Body::empty()).unwrap();
+    let req = Request::get("/api/v1/languages").body(Body::empty()).unwrap();
     let response = app.request(req).await;
     let headers = response.headers().clone();
 
