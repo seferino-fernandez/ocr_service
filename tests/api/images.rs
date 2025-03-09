@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    http::{header::CONTENT_TYPE, Request, StatusCode},
+    http::{Request, StatusCode, header::CONTENT_TYPE},
 };
 use http_body_util::BodyExt as _;
 use tokio::fs::read;

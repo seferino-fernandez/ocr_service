@@ -1,4 +1,4 @@
-use axum::{body::Body, http::Request, http::Response, Router};
+use axum::{Router, body::Body, http::Request, http::Response};
 use tower::ServiceExt as _;
 
 use ocr_service::{config::app_config::app_config, router};

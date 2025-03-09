@@ -1,6 +1,6 @@
 [package]
 name = "ocr_service"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 publish = false
 
@@ -45,24 +45,24 @@ image = "0.25.5"
 walkdir = "2.5.0"
 
 # OpenTelemetry
-opentelemetry = { version = "0.27.1", features = ["logs", "metrics", "trace", "internal-logs"] }
-opentelemetry_sdk = { version = "0.27.1", features = ["rt-tokio", "logs", "metrics", "trace", "spec_unstable_metrics_views"] }
-opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_experimental"] }
-opentelemetry-otlp = { version = "0.27.0", default-features = false, features = [
+opentelemetry = { version = "0.28.0", features = ["logs", "metrics", "trace", "internal-logs"] }
+opentelemetry_sdk = { version = "0.28.0", features = ["rt-tokio", "logs", "metrics", "trace", "spec_unstable_metrics_views"] }
+opentelemetry-semantic-conventions = { version = "0.28.0", features = ["semconv_experimental"] }
+opentelemetry-otlp = { version = "0.28.0", default-features = false, features = [
   "logs",
   "metrics",
   "trace",
   "grpc-tonic",
   "tls-roots",
 ] }
-opentelemetry-http = "0.27.0"
-opentelemetry-appender-tracing = { version = "0.27.0" }
-tower-otel-http-metrics = { version = "0.10.0", default-features = false, features = ["axum"] }
+opentelemetry-http = "0.28.0"
+opentelemetry-appender-tracing = { version = "0.28.1", features = ["experimental_use_tracing_span_context"] }
+tower-otel-http-metrics = { version = "0.13.0", default-features = false, features = ["axum"] }
 
 # Tracing
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter"] }
-tracing-opentelemetry = { version = "0.28.0", features = ["metrics"] }
+tracing-opentelemetry = { version = "0.29.0", features = ["metrics"] }
 
 # OpenAPI Documentation
 utoipa-axum = "0.2.0"

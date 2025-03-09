@@ -49,7 +49,4 @@ async fn shutdown_server() {
         _ = ctrl_c => {},
         _ = sig_term => {},
     }
-
-    tracing::debug!("Shutting down OpenTelemetry providers");
-    opentelemetry::global::shutdown_tracer_provider();
 }
