@@ -56,7 +56,7 @@ pub fn router(app_config: AppConfig) -> axum::Router {
     let global_meter =
         global::meter_provider().meter(app_state.app_config.service.name.clone().leak());
 
-    let otel_metrics_layer = tower_otel_http_metrics::HTTPMetricsLayerBuilder::new()
+    let otel_metrics_layer = tower_otel_http_metrics::HTTPMetricsLayerBuilder::builder()
         .with_meter(global_meter)
         .build()
         .unwrap();

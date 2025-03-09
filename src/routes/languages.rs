@@ -1,9 +1,9 @@
-use axum::extract::State;
 use axum::Json;
+use axum::extract::State;
 
+use crate::AppState;
 use crate::models::error::ErrorType;
 use crate::models::languages::{LanguagesResponse, TesseractModel};
-use crate::AppState;
 
 /// Fetch all of the available OCR Processing languages and models.
 #[utoipa::path(

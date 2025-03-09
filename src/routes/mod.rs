@@ -6,8 +6,8 @@ pub mod images;
 pub mod languages;
 
 use crate::{
-    models::{health::HealthResponse, images::ImagesResponse, languages::LanguagesResponse},
     AppState,
+    models::{health::HealthResponse, images::ImagesResponse, languages::LanguagesResponse},
 };
 
 #[derive(OpenApi)]

@@ -2,14 +2,13 @@ use std::time::Duration;
 
 use crate::config::app_config::AppConfig;
 use anyhow::Error;
-use opentelemetry::{self, global, trace::TracerProvider, KeyValue};
+use opentelemetry::{self, KeyValue, global, trace::TracerProvider};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, SpanExporter, WithExportConfig, WithTonicConfig};
 use opentelemetry_sdk::{
-    propagation::TraceContextPropagator,
-    resource::{EnvResourceDetector, SdkProvidedResourceDetector, TelemetryResourceDetector},
-    trace::{RandomIdGenerator, Sampler},
     Resource,
+    propagation::TraceContextPropagator,
+    trace::{RandomIdGenerator, Sampler},
 };
 use opentelemetry_semantic_conventions::{
     resource::{DEPLOYMENT_ENVIRONMENT_NAME, SERVICE_NAME},
@@ -17,15 +16,15 @@ use opentelemetry_semantic_conventions::{
 };
 use tonic::metadata::*;
 use tracing_subscriber::{
-    fmt::format::FmtSpan, layer::SubscriberExt as _, EnvFilter, Layer, Registry,
+    EnvFilter, Layer, Registry, fmt::format::FmtSpan, layer::SubscriberExt as _,
 };
 
 const OTEL_PROVIDER_OPENOBSERVE: &str = "openobserve";
 
 #[must_use = "Recommend holding with 'let _guard = ' pattern to ensure the final telemetry data is sent to the server"]
 pub struct OtelGuard {
-    tracer_provider: Option<opentelemetry_sdk::trace::TracerProvider>,
-    logging_provider: Option<opentelemetry_sdk::logs::LoggerProvider>,
+    tracer_provider: Option<opentelemetry_sdk::trace::SdkTracerProvider>,
+    logging_provider: Option<opentelemetry_sdk::logs::SdkLoggerProvider>,
     meter_provider: Option<opentelemetry_sdk::metrics::SdkMeterProvider>,
 }
 
@@ -33,7 +32,9 @@ impl Drop for OtelGuard {
     fn drop(&mut self) {
         if let Some(tracer_provider) = self.tracer_provider.take() {
             tracing::info!("Flushing OpenTelemetry traces");
-            tracer_provider.force_flush();
+            if let Err(err) = tracer_provider.force_flush() {
+                eprintln!("Failed to flush OpenTelemetry traces: {err:?}");
+            }
             tracing::info!("Shutting down OpenTelemetry tracer provider");
             if let Err(err) = tracer_provider.shutdown() {
                 eprintln!("Failed to shutdown OpenTelemetry tracer provider: {err:?}");
@@ -41,7 +42,9 @@ impl Drop for OtelGuard {
         }
         if let Some(logging_provider) = self.logging_provider.take() {
             tracing::info!("Flushing OpenTelemetry logs");
-            logging_provider.force_flush();
+            if let Err(err) = logging_provider.force_flush() {
+                eprintln!("Failed to flush OpenTelemetry logs: {err:?}");
+            }
             tracing::info!("Shutting down OpenTelemetry logging provider");
             if let Err(err) = logging_provider.shutdown() {
                 eprintln!("Failed to shutdown OpenTelemetry logging provider: {err:?}");
@@ -162,41 +165,34 @@ fn stdout_env_filter() -> EnvFilter {
     EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info".into())
         .add_directive("opentelemetry=debug".parse().unwrap())
-        .add_directive("opentelemetry_sdk=off".parse().unwrap())
 }
 
 fn init_otel_resources(app_config: &AppConfig) -> Resource {
-    let otlp_resource_detected = Resource::from_detectors(
-        Duration::from_secs(3),
-        vec![
-            Box::new(SdkProvidedResourceDetector),
-            Box::new(EnvResourceDetector::new()),
-            Box::new(TelemetryResourceDetector),
-        ],
-    );
-    let otlp_resource_override = Resource::new(vec![
-        KeyValue::new(SERVICE_NAME, app_config.service.name.clone()),
-        KeyValue::new(
-            DEPLOYMENT_ENVIRONMENT_NAME,
-            app_config.server.environment.clone(),
-        ),
-        KeyValue::new(SERVER_ADDRESS, app_config.server.host.clone()),
-        KeyValue::new(SERVER_PORT, app_config.server.port.to_string()),
-    ]);
-    otlp_resource_detected.merge(&otlp_resource_override)
+    Resource::builder()
+        .with_service_name(app_config.service.name.clone())
+        .with_attributes(vec![
+            KeyValue::new(SERVICE_NAME, app_config.service.name.clone()),
+            KeyValue::new(
+                DEPLOYMENT_ENVIRONMENT_NAME,
+                app_config.server.environment.clone(),
+            ),
+            KeyValue::new(SERVER_ADDRESS, app_config.server.host.clone()),
+            KeyValue::new(SERVER_PORT, app_config.server.port.to_string()),
+        ])
+        .build()
 }
 
 fn init_tracer_provider(
     app_config: &AppConfig,
-) -> Result<opentelemetry_sdk::trace::TracerProvider, Error> {
+) -> Result<opentelemetry_sdk::trace::SdkTracerProvider, Error> {
     let span_exporter = init_span_exporter(app_config)?;
-    let tracer_provider = opentelemetry_sdk::trace::TracerProvider::builder()
+    let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
         .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
             1.0,
         ))))
         .with_id_generator(RandomIdGenerator::default())
         .with_resource(init_otel_resources(app_config))
-        .with_batch_exporter(span_exporter, opentelemetry_sdk::runtime::Tokio)
+        .with_batch_exporter(span_exporter)
         .build();
     global::set_tracer_provider(tracer_provider.clone());
     Ok(tracer_provider)
@@ -215,7 +211,7 @@ fn init_span_exporter(app_config: &AppConfig) -> Result<SpanExporter, Error> {
 
 fn init_logging_provider(
     app_config: &AppConfig,
-) -> Result<opentelemetry_sdk::logs::LoggerProvider, Error> {
+) -> Result<opentelemetry_sdk::logs::SdkLoggerProvider, Error> {
     let mut builder = LogExporter::builder()
         .with_tonic()
         .with_endpoint(app_config.otel.logs_endpoint.clone().unwrap());
@@ -225,9 +221,9 @@ fn init_logging_provider(
     }
     let logs_exporter = builder.build()?;
 
-    let logger_provider = opentelemetry_sdk::logs::LoggerProvider::builder()
+    let logger_provider = opentelemetry_sdk::logs::SdkLoggerProvider::builder()
         .with_resource(init_otel_resources(app_config))
-        .with_batch_exporter(logs_exporter, opentelemetry_sdk::runtime::Tokio)
+        .with_batch_exporter(logs_exporter)
         .build();
     Ok(logger_provider)
 }
@@ -273,12 +269,9 @@ fn init_meter_provider(
     }
     let metric_exporter = builder.build()?;
 
-    let periodic_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(
-        metric_exporter,
-        opentelemetry_sdk::runtime::Tokio,
-    )
-    .with_interval(app_config.otel.metric_export_interval.unwrap())
-    .build();
+    let periodic_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter)
+        .with_interval(app_config.otel.metric_export_interval.unwrap())
+        .build();
 
     let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
         .with_resource(init_otel_resources(app_config))

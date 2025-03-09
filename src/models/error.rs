@@ -1,7 +1,7 @@
 use axum::{
+    Json,
     extract::rejection::JsonRejection,
     response::{IntoResponse, Response},
-    Json,
 };
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
