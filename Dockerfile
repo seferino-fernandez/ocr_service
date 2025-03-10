@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:0.1.70-rust-bookworm AS chef
+FROM lukemathwalker/cargo-chef:0.1.71-rust-bookworm AS chef
 WORKDIR /app
 # Install dependencies for Tesseract Engine
 RUN apt update && apt install -y \
@@ -27,6 +27,7 @@ WORKDIR /app
 
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends ca-certificates \
+    curl \
     && apt-get autoremove -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/*
