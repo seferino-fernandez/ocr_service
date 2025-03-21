@@ -119,6 +119,7 @@ mod tests {
                 host: "127.0.0.1".to_string(),
                 port: 8080,
                 file_upload_max_size: 1024 * 1024 * 10,
+                file_upload_max_size_enabled: true,
                 environment: "test".to_string(),
                 timeout: Duration::from_secs(15),
             },
