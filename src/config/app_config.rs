@@ -8,6 +8,7 @@ const DEFAULT_SERVER_REQUEST_TIMEOUT: u64 = 15;
 const DEFAULT_SERVER_HOST: &str = "0.0.0.0";
 const DEFAULT_SERVER_PORT: u16 = 8080;
 const DEFAULT_SERVER_FILE_UPLOAD_MAX_SIZE: usize = 1024 * 1024 * 10;
+const DEFAULT_SERVER_FILE_UPLOAD_MAX_SIZE_ENABLED: bool = true;
 const DEFAULT_SERVER_ENVIRONMENT: &str = "development";
 
 const DEFAULT_SERVICE_NAME: &str = "ocr-service";
@@ -41,6 +42,7 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub file_upload_max_size: usize,
+    pub file_upload_max_size_enabled: bool,
     pub environment: String,
     pub timeout: Duration,
 }
@@ -92,6 +94,10 @@ impl AppConfig {
                     .unwrap_or(DEFAULT_SERVER_FILE_UPLOAD_MAX_SIZE.to_string())
                     .parse::<usize>()
                     .unwrap_or(DEFAULT_SERVER_FILE_UPLOAD_MAX_SIZE),
+                file_upload_max_size_enabled: env::var("SERVER_FILE_UPLOAD_MAX_SIZE_ENABLED")
+                    .unwrap_or(DEFAULT_SERVER_FILE_UPLOAD_MAX_SIZE_ENABLED.to_string())
+                    .parse::<bool>()
+                    .unwrap_or(DEFAULT_SERVER_FILE_UPLOAD_MAX_SIZE_ENABLED),
                 environment: env::var("SERVER_ENVIRONMENT")
                     .unwrap_or(DEFAULT_SERVER_ENVIRONMENT.to_string()),
                 timeout: Duration::from_secs(

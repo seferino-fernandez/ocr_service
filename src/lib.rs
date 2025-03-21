@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use axum::extract::DefaultBodyLimit;
 use opentelemetry::global;
 use utoipa::OpenApi;
 pub mod config;
@@ -61,12 +62,24 @@ pub fn router(app_config: AppConfig) -> axum::Router {
         .build()
         .unwrap();
 
+    let body_limit_layer = if app_state.app_config.server.file_upload_max_size_enabled {
+        Some(server::body_limit_layer(&app_state.app_config.server))
+    } else {
+        None
+    };
+
     // Combine all the routes and apply the middleware layers.
     // The order of the layers is important. The first layer is the outermost layer.
-    router
+    let mut router = router
         .merge(Scalar::with_url("/api-docs", api))
         .layer(security::cors_layer(&app_state.app_config.security))
-        .layer(server::body_limit_layer(&app_state.app_config.server))
+        .layer(DefaultBodyLimit::disable());
+
+    if let Some(limit_layer) = body_limit_layer {
+        router = router.layer(limit_layer);
+    }
+
+    router
         .layer(server::normalize_path_layer())
         .layer(server::timeout_layer(&app_state.app_config.server))
         .layer(otel_metrics_layer)
