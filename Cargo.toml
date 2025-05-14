@@ -12,10 +12,10 @@ path = "src/main.rs"
 name = "ocr_service"
 
 [dependencies]
-tokio = { version = "1.44.1", features = ["full"] }
-axum = { version = "0.8.1", features = ["multipart"] }
+tokio = { version = "1.45.0", features = ["full"] }
+axum = { version = "0.8.4", features = ["multipart"] }
 tower = { version = "0.5.2", features = [] }
-tower-http = { version = "0.6.2", features = [
+tower-http = { version = "0.6.4", features = [
     "trace",
     "timeout",
     "cors",
@@ -30,39 +30,34 @@ reqwest = { version = "0.12.15", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }
-tonic = { version = "0.12.3", features = ["tls", "tls-native-roots"] }
+# 'tonic' can't be updated until opentelemetry-otlp uses a higher version
+tonic = { version = "0.12.3", features = ["tls-native-roots"] }
 futures-util = "0.3.31"
 pin-project-lite = "0.2.16"
-chrono = { version = "0.4.40", features = ["serde"] }
+chrono = { version = "0.4.41", features = ["serde"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 uuid = { version = "1.16.0", features = ["v7", "serde"] }
 dotenvy = "0.15.7"
-anyhow = "1.0.97"
+anyhow = "1.0.98"
 thiserror = "2.0.12"
 tesseract-rs = { version = "0.1.19", features = ["build-tesseract"] }
-image = "0.25.5"
+image = "0.25.6"
 walkdir = "2.5.0"
 
 # OpenTelemetry
-opentelemetry = { version = "0.28.0", features = ["logs", "metrics", "trace", "internal-logs"] }
-opentelemetry_sdk = { version = "0.28.0", features = ["rt-tokio", "logs", "metrics", "trace", "spec_unstable_metrics_views"] }
-opentelemetry-semantic-conventions = { version = "0.28.0", features = ["semconv_experimental"] }
-opentelemetry-otlp = { version = "0.28.0", default-features = false, features = [
-  "logs",
-  "metrics",
-  "trace",
-  "grpc-tonic",
-  "tls-roots",
-] }
-opentelemetry-http = "0.28.0"
-opentelemetry-appender-tracing = { version = "0.28.1", features = ["experimental_use_tracing_span_context"] }
-tower-otel-http-metrics = { version = "0.13.0", default-features = false, features = ["axum"] }
+opentelemetry = { version = "0.29.1", features = ["logs", "metrics", "trace", "internal-logs"] }
+opentelemetry_sdk = { version = "0.29.0", features = ["rt-tokio", "logs", "metrics", "trace", "spec_unstable_metrics_views"] }
+opentelemetry-semantic-conventions = { version = "0.29.0", features = ["semconv_experimental"] }
+opentelemetry-otlp = { version = "0.29.0", features = ["grpc-tonic","tls-roots"] }
+opentelemetry-http = "0.29.0"
+opentelemetry-appender-tracing = { version = "0.29.1", features = ["experimental_use_tracing_span_context"] }
+tower-otel-http-metrics = { version = "0.14.0", default-features = false, features = ["axum"] }
 
 # Tracing
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter"] }
-tracing-opentelemetry = { version = "0.29.0", features = ["metrics"] }
+tracing-opentelemetry = { version = "0.30.0", features = ["metrics"] }
 
 # OpenAPI Documentation
 utoipa-axum = "0.2.0"
@@ -70,8 +65,8 @@ utoipa = "5.3.1"
 utoipa-scalar = { version = "0.3.0", features = ["axum"] }
 
 [dev-dependencies]
-insta = { version = "1.42.2", features = ["yaml", "filters"] }
-tempfile = "3.19.1"
+insta = { version = "1.43.1", features = ["yaml", "filters"] }
+tempfile = "3.20.0"
 
 [profile.dev.package]
 # Insta: Faster runs https://insta.rs/docs/quickstart/#optional-faster-runs

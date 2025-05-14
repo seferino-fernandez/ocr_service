@@ -7,14 +7,15 @@ use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, SpanExporter, WithExportConfig, WithTonicConfig};
 use opentelemetry_sdk::{
     Resource,
+    metrics::Temporality,
     propagation::TraceContextPropagator,
-    trace::{RandomIdGenerator, Sampler},
+    trace::{RandomIdGenerator, Sampler, SdkTracerProvider},
 };
 use opentelemetry_semantic_conventions::{
     resource::{DEPLOYMENT_ENVIRONMENT_NAME, SERVICE_NAME},
     trace::{SERVER_ADDRESS, SERVER_PORT},
 };
-use tonic::metadata::*;
+use tonic::metadata::{MetadataMap, MetadataValue};
 use tracing_subscriber::{
     EnvFilter, Layer, Registry, fmt::format::FmtSpan, layer::SubscriberExt as _,
 };
@@ -186,7 +187,7 @@ fn init_tracer_provider(
     app_config: &AppConfig,
 ) -> Result<opentelemetry_sdk::trace::SdkTracerProvider, Error> {
     let span_exporter = init_span_exporter(app_config)?;
-    let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+    let tracer_provider = SdkTracerProvider::builder()
         .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
             1.0,
         ))))
@@ -260,7 +261,7 @@ fn init_meter_provider(
 ) -> Result<opentelemetry_sdk::metrics::SdkMeterProvider, Error> {
     let mut builder = opentelemetry_otlp::MetricExporter::builder()
         .with_tonic()
-        .with_temporality(opentelemetry_sdk::metrics::Temporality::Cumulative)
+        .with_temporality(Temporality::Cumulative)
         .with_endpoint(app_config.otel.metrics_endpoint.clone().unwrap())
         .with_timeout(Duration::from_secs(3));
 

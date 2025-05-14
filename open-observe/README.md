@@ -4,19 +4,19 @@ See [openobserve.ai - Docs - Docker](https://openobserve.ai/docs/quickstart/#__t
 
 ## Prerequisites
 
-- Docker
-- Docker Compose
+-   Docker
+-   Docker Compose
 
 ## Configuring OpenObserve and the OCR Service
 
 Add the following environment variables to the `openobserve` service in the `compose.yaml` file:
 
-- `ZO_ROOT_USER_EMAIL`: The email address of the root user.
-- `ZO_ROOT_USER_PASSWORD`: The password of the root user.
+-   `ZO_ROOT_USER_EMAIL`: The email address of the root user.
+-   `ZO_ROOT_USER_PASSWORD`: The password of the root user.
 
 Add the following environment variables to the `ocr_service` service in the `compose.yaml` file:
 
-- `OTEL_PROVIDER_AUTH_TOKEN`: The authentication token for the OpenTelemetry provider. It's a base64 encoded string of the email and password separated by a colon.
+-   `OTEL_PROVIDER_AUTH_TOKEN`: The authentication token for the OpenTelemetry provider. It's a base64 encoded string of the email and password separated by a colon.
 
 ## Building the OCR Service
 

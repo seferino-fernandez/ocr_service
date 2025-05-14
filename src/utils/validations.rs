@@ -86,7 +86,11 @@ pub fn validate_language_params(
 /// Returns an error if the file type is not allowed
 pub fn validate_file_type(file_type: &str) -> Result<(), ErrorType> {
     if !ALLOWED_FILE_TYPES.contains(&file_type) {
-        return Err(ErrorType::InvalidRequest("Invalid file type".to_owned()));
+        return Err(ErrorType::InvalidRequest(format!(
+            "Invalid file type: {}. File types allowed: {}",
+            file_type,
+            ALLOWED_FILE_TYPES.join(",")
+        )));
     }
     Ok(())
 }
