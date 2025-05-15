@@ -118,7 +118,7 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(ErrorType::InvalidRequest(msg)) => {
-                assert_eq!(msg, "Invalid file type");
+                assert_eq!(msg, "Invalid file type: text/plain. File types allowed: image/png,image/jpg,image/jpeg,image/webp,image/gif");
             }
             _ => panic!("Expected InvalidRequest error"),
         }
@@ -130,7 +130,7 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(ErrorType::InvalidRequest(msg)) => {
-                assert_eq!(msg, "Invalid file type");
+                assert_eq!(msg, "Invalid file type: . File types allowed: image/png,image/jpg,image/jpeg,image/webp,image/gif");
             }
             _ => panic!("Expected InvalidRequest error"),
         }
