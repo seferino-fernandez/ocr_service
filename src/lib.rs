@@ -73,6 +73,7 @@ pub fn router(app_state: AppState) -> axum::Router {
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .nest("/api", routes::ImagesApi::router())
         .nest("/api", routes::LanguagesApi::router())
+        .nest("/system", routes::ConfigApi::router())
         .nest("/system", routes::HealthApi::router())
         .split_for_parts();
 

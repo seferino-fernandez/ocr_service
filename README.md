@@ -165,3 +165,12 @@ response carries no filesystem paths.
 ```bash
 curl http://localhost:8080/system/health
 ```
+
+### Client Configuration
+
+Get the upload limit and OCR Engine content types before selecting a file, so a browser can
+reject a file that is too large before beginning an upload.
+
+```bash
+curl http://localhost:8080/system/config
+```

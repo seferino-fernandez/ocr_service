@@ -1,8 +1,10 @@
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+pub mod config;
 pub mod health;
 
+pub use config::ConfigApi;
 pub use health::HealthApi;
 
 pub mod images;
