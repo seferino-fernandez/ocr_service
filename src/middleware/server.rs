@@ -1,3 +1,4 @@
+use http::StatusCode;
 use tower_http::{
     limit::RequestBodyLimitLayer, normalize_path::NormalizePathLayer, timeout::TimeoutLayer,
 };
@@ -11,7 +12,7 @@ pub fn body_limit_layer(server_config: &ServerConfig) -> RequestBodyLimitLayer {
 
 /// Layer to configure the timeout for requests.
 pub fn timeout_layer(server_config: &ServerConfig) -> TimeoutLayer {
-    TimeoutLayer::new(server_config.timeout)
+    TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, server_config.timeout)
 }
 
 /// Layer to normalize URL paths.

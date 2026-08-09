@@ -13,9 +13,6 @@ impl TestApp {
         // .env used only for development, so we discard error in all other cases.
         dotenvy::dotenv().ok();
 
-        // Set port to 0 so tests can spawn multiple servers on OS assigned ports.
-        std::env::set_var("PORT", "0");
-
         // Parse configuration from the environment.
         // This will exit with a help message if something is wrong.
         let app_config = app_config().to_owned();

@@ -20,7 +20,7 @@ services:
         networks:
             - backend
         build:
-            context: ../
+            context: ../../
             dockerfile: Dockerfile
         image: ocr-service
         ports:
@@ -34,7 +34,7 @@ services:
             - RUST_LOG=info,ocr_service=debug,tower_http=debug
             - SERVER_ENVIRONMENT=development
             - SERVICE_NAME=ocr-service
-            - OTEL_ENABLED=true
+            - OTEL_SDK_DISABLED=false
             - OTEL_PROVIDER=openobserve
             - OTEL_PROVIDER_ORGANIZATION=default
             - OTEL_PROVIDER_STREAM_NAME=ocr-service

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use axum::extract::DefaultBodyLimit;
-use opentelemetry::global;
+use opentelemetry_instrumentation_tower::HTTPLayer;
 use utoipa::OpenApi;
 pub mod config;
 pub mod middleware;
@@ -30,7 +30,7 @@ pub struct AppState {
         description = "API documentation for OCR Service",
     ),
     tags(
-        (name = "health", description = "Health API"),
+        (name = "System", description = "System Management APIs"),
         (name = "images", description = "Images API"),
         (name = "languages", description = "Languages API"),
     )
@@ -53,15 +53,6 @@ pub fn router(app_config: AppConfig) -> axum::Router {
         .nest("/system", routes::HealthApi::router())
         .split_for_parts();
 
-    // Use `leak()` because the meter provider wants a static string (&str) but the service name is from an env variable.
-    let global_meter =
-        global::meter_provider().meter(app_state.app_config.service.name.clone().leak());
-
-    let otel_metrics_layer = tower_otel_http_metrics::HTTPMetricsLayerBuilder::builder()
-        .with_meter(global_meter)
-        .build()
-        .unwrap();
-
     let body_limit_layer = if app_state.app_config.server.file_upload_max_size_enabled {
         Some(server::body_limit_layer(&app_state.app_config.server))
     } else {
@@ -78,10 +69,18 @@ pub fn router(app_config: AppConfig) -> axum::Router {
     if let Some(limit_layer) = body_limit_layer {
         router = router.layer(limit_layer);
     }
-
-    router
+    router = router
         .layer(server::normalize_path_layer())
-        .layer(server::timeout_layer(&app_state.app_config.server))
-        .layer(otel_metrics_layer)
-        .with_state(app_state)
+        .layer(server::timeout_layer(&app_state.app_config.server));
+
+    let otel_metrics_layer = if !app_state.app_config.otel.sdk_disabled {
+        Some(HTTPLayer::new())
+    } else {
+        None
+    };
+
+    if let Some(otel_metrics_layer) = otel_metrics_layer {
+        router = router.layer(otel_metrics_layer);
+    }
+    router.with_state(app_state)
 }

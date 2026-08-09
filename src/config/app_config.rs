@@ -14,7 +14,7 @@ const DEFAULT_SERVER_ENVIRONMENT: &str = "development";
 const DEFAULT_SERVICE_NAME: &str = "ocr-service";
 const DEFAULT_SERVICE_DEFAULT_LANGUAGE: &str = "eng";
 
-const DEFAULT_MAX_ACCESS_CONTROL_AGE: u64 = 600;
+const DEFAULT_MAX_ACCESS_CONTROL_AGE: u64 = 600; // 10 minutes
 
 const DEFAULT_TESSERACT_DATA_PATH: &str = "tesseract";
 
@@ -68,7 +68,7 @@ pub struct OtelProviderConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OtelConfig {
-    pub enabled: bool,
+    pub sdk_disabled: bool,
     pub service_name: Option<String>,
     pub traces_endpoint: Option<String>,
     pub logs_endpoint: Option<String>,
@@ -120,19 +120,7 @@ impl AppConfig {
                         .unwrap_or(DEFAULT_MAX_ACCESS_CONTROL_AGE),
                 ),
             },
-            otel: OtelConfig {
-                enabled: env::var("OTEL_ENABLED")
-                    .unwrap_or("false".to_string())
-                    .parse::<bool>()
-                    .unwrap_or(false),
-                service_name: env::var("OTEL_SERVICE_NAME").ok(),
-                traces_endpoint: env::var("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT").ok(),
-                logs_endpoint: env::var("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT").ok(),
-                metrics_endpoint: env::var("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT").ok(),
-                metric_export_interval: env::var("OTEL_METRIC_EXPORT_INTERVAL")
-                    .ok()
-                    .map(|interval| Duration::from_millis(interval.parse::<u64>().unwrap())),
-            },
+            otel: Self::load_otel_config(),
             otel_provider: OtelProviderConfig {
                 provider: env::var("OTEL_PROVIDER").ok(),
                 organization: env::var("OTEL_PROVIDER_ORGANIZATION").ok(),
@@ -144,5 +132,49 @@ impl AppConfig {
                     .unwrap_or(DEFAULT_TESSERACT_DATA_PATH.to_string()),
             },
         })
+    }
+
+    /// Loads OpenTelemetry related configuration from environment variables.
+    fn load_otel_config() -> OtelConfig {
+        // Determine if the OTel SDK is explicitly disabled by the environment variable.
+        // OTEL_SDK_DISABLED=true means the SDK is disabled.
+        // If OTEL_SDK_DISABLED is not set or is "false", the SDK is considered enabled by default.
+        let is_otel_sdk_explicitly_disabled: bool = env::var("OTEL_SDK_DISABLED")
+            .ok()
+            .and_then(|s| s.parse::<bool>().ok())
+            .unwrap_or(false);
+
+        if is_otel_sdk_explicitly_disabled {
+            // SDK is disabled, populate OtelConfig with default "disabled" values.
+            OtelConfig {
+                sdk_disabled: true,
+                service_name: None,
+                traces_endpoint: None,
+                logs_endpoint: None,
+                metrics_endpoint: None,
+                metric_export_interval: None,
+            }
+        } else {
+            // SDK is enabled (or not explicitly disabled), parse related OTel environment variables.
+            let common_otlp_endpoint = env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
+
+            OtelConfig {
+                sdk_disabled: false,
+                service_name: env::var("OTEL_SERVICE_NAME").ok(),
+                traces_endpoint: env::var("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+                    .ok()
+                    .or_else(|| common_otlp_endpoint.clone()),
+                logs_endpoint: env::var("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
+                    .ok()
+                    .or_else(|| common_otlp_endpoint.clone()),
+                metrics_endpoint: env::var("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
+                    .ok()
+                    .or(common_otlp_endpoint),
+                metric_export_interval: env::var("OTEL_METRIC_EXPORT_INTERVAL")
+                    .ok()
+                    .and_then(|interval_str| interval_str.parse::<u64>().ok())
+                    .map(Duration::from_millis),
+            }
+        }
     }
 }

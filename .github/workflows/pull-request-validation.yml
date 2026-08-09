@@ -1,45 +1,56 @@
 name: Pull Request Validation
 
 on:
-  push:
-    branches: ["main"]
-    paths-ignore:
-      - "README.md"
-      - "Dockerfile"
-  pull_request:
-    branches: ["main"]
-    paths-ignore:
-      - "README.md"
-      - "Dockerfile"
+    push:
+        branches:
+            - main
+        paths-ignore:
+            - "**.md"
+    pull_request:
+        paths-ignore:
+            - "**.md"
+
+permissions: {}
 
 env:
-  CARGO_TERM_COLOR: always
+    CARGO_TERM_COLOR: always
+    CARGO_INCREMENTAL: 0
+    RUSTFLAGS: -D warnings
+    CARGO_PROFILE_TEST_DEBUG: 0
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+    test:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  lfs: true
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+            - name: Install cargo nextest
+              uses: taiki-e/install-action@cargo-nextest
+            - uses: Swatinem/rust-cache@v2
+            - name: Compile
+              run: cargo check --locked
+            - name: Run tests
+              run: cargo nextest run --all-targets --all-features
 
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          lfs: true
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy,rustfmt
-
-      - name: Install cargo nextest
-        uses: taiki-e/install-action@cargo-nextest
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Lint with clippy
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Run tests
-        run: cargo nextest --verbose run
-
-      - name: Build
-        run: cargo build --release
+    lint:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  lfs: true
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: clippy,rustfmt
+            - uses: Swatinem/rust-cache@v2
+            - name: Run cargo fmt
+              run: cargo fmt --all --check
+            - name: Run cargo clippy
+              run: cargo clippy --all-targets --all-features -- -D warnings

@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:0.1.71-rust-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
 WORKDIR /app
 # Install dependencies for Tesseract Engine
 RUN apt update && apt install -y \
@@ -21,16 +21,9 @@ RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 RUN cargo build --release --bin ocr_service
 
-FROM debian:bookworm-slim AS runtime
+FROM gcr.io/distroless/cc-debian13:nonroot AS runtime
 
 WORKDIR /app
-
-RUN apt-get update -y \
-    && apt-get install -y --no-install-recommends ca-certificates \
-    curl \
-    && apt-get autoremove -y \
-    && apt-get clean -y \
-    && rm -rf /var/lib/apt/lists/*
 
 ARG TESSDATA_PATH=tesseract
 

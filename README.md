@@ -4,12 +4,12 @@ This repository contains OCR Service built using [Axum](https://github.com/tokio
 
 The full list of crates used can be found in the [Cargo.toml](./Cargo.toml) file. However, here are some key ones:
 
--   [axum](https://github.com/tokio-rs/axum) - A user-friendly, modular web framework built with Tokio, Tower, and Hyper.
--   [tesseract-rs](https://github.com/cafercangundogdu/tesseract-rs) - A library for OCR using Tesseract Rust bindings.
--   [image](https://github.com/image-rs/image) - An image processing library for Rust.
--   [Insta](https://insta.rs/) - A library for snapshot testing in Rust.
--   [utoipa](https://github.com/juhaku/utoipa) - A library for generating OpenAPI documentation in Rust.
--   [opentelemetry-rust](https://github.com/open-telemetry/opentelemetry-rust) - OpenTelemetry for Rust.
+- [axum](https://github.com/tokio-rs/axum) - A user-friendly, modular web framework built with Tokio, Tower, and Hyper.
+- [tesseract-rs](https://github.com/cafercangundogdu/tesseract-rs) - A library for OCR using Tesseract Rust bindings.
+- [image](https://github.com/image-rs/image) - An image processing library for Rust.
+- [Insta](https://insta.rs/) - A library for snapshot testing in Rust.
+- [utoipa](https://github.com/juhaku/utoipa) - A library for generating OpenAPI documentation in Rust.
+- [opentelemetry-rust](https://github.com/open-telemetry/opentelemetry-rust) - OpenTelemetry for Rust.
 
 ## Getting Started
 
@@ -28,8 +28,8 @@ The `TESSDATA_PATH` environment variable allows you to specify where the Tessera
 
 The OCR Service requires the Tesseract data files to be downloaded into the [tesseract](./tesseract) directory. You can download the files manually via these repositories:
 
--   [tesseract-ocr/tessdata](https://github.com/tesseract-ocr/tessdata)
--   [tesseract-ocr/tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast)
+- [tesseract-ocr/tessdata](https://github.com/tesseract-ocr/tessdata)
+- [tesseract-ocr/tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast)
 
 Or by running the [scripts/download-tessdata.sh](./scripts/README.md) script.
 

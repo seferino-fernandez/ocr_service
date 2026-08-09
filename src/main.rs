@@ -1,3 +1,8 @@
+//! `ocr-service`
+
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
+
 use axum::BoxError;
 use ocr_service::config::app_config::app_config;
 use ocr_service::utils::telemetry::initialize_opentelemetry_providers;

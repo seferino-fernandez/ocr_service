@@ -58,17 +58,15 @@ pub fn get_available_languages_with_models(
                     .parent()
                     .and_then(|p| p.file_name())
                     .and_then(|name| name.to_str())
-                {
-                    if languages_visited
+                    && languages_visited
                         .insert(format!("{}_{}", language_dir_name, language_model_name))
-                    {
-                        languages.insert(TesseractModel {
-                            language: language_dir_name.to_string(),
-                            model: Some(language_model_name.to_string()),
-                            full_path: Some(full_path),
-                            relative_path: Some(relative_path),
-                        });
-                    }
+                {
+                    languages.insert(TesseractModel {
+                        language: language_dir_name.to_string(),
+                        model: Some(language_model_name.to_string()),
+                        full_path: Some(full_path),
+                        relative_path: Some(relative_path),
+                    });
                 }
             }
             _ => {
@@ -131,7 +129,7 @@ mod tests {
                 max_access_control_age: Duration::from_secs(600),
             },
             otel: crate::config::app_config::OtelConfig {
-                enabled: false,
+                sdk_disabled: true,
                 service_name: None,
                 traces_endpoint: None,
                 logs_endpoint: None,

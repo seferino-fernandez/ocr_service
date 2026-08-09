@@ -14,5 +14,5 @@ services:
       - RUST_LOG=info,ocr_service=debug,tower_http=debug
       - SERVER_ENVIRONMENT=development
       - SERVICE_NAME=ocr-service
-      - OTEL_ENABLED=false
+      - OTEL_SDK_DISABLED=true
       - TESSDATA_PATH=tesseract

@@ -2,12 +2,15 @@ use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 pub mod health;
+
+pub use health::HealthApi;
+
 pub mod images;
 pub mod languages;
 
 use crate::{
     AppState,
-    models::{health::HealthResponse, images::ImagesResponse, languages::LanguagesResponse},
+    models::{images::ImagesResponse, languages::LanguagesResponse},
 };
 
 #[derive(OpenApi)]
@@ -17,16 +20,6 @@ pub struct ImagesApi;
 impl ImagesApi {
     pub fn router() -> OpenApiRouter<AppState> {
         OpenApiRouter::with_openapi(ImagesApi::openapi()).routes(routes!(images::images))
-    }
-}
-
-#[derive(OpenApi)]
-#[openapi(components(schemas(HealthResponse)))]
-pub struct HealthApi;
-
-impl HealthApi {
-    pub fn router() -> OpenApiRouter<AppState> {
-        OpenApiRouter::with_openapi(HealthApi::openapi()).routes(routes!(health::health))
     }
 }
 

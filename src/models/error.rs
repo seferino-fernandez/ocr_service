@@ -6,7 +6,6 @@ use axum::{
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::error;
 use utoipa::ToSchema;
 
 /// Custom error type for the API.

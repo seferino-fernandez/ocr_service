@@ -4,6 +4,7 @@ use crate::config::app_config::AppConfig;
 use anyhow::Error;
 use opentelemetry::{self, KeyValue, global, trace::TracerProvider};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
+use opentelemetry_otlp::tonic_types::metadata::MetadataMap;
 use opentelemetry_otlp::{LogExporter, SpanExporter, WithExportConfig, WithTonicConfig};
 use opentelemetry_sdk::{
     Resource,
@@ -15,7 +16,7 @@ use opentelemetry_semantic_conventions::{
     resource::{DEPLOYMENT_ENVIRONMENT_NAME, SERVICE_NAME},
     trace::{SERVER_ADDRESS, SERVER_PORT},
 };
-use tonic::metadata::{MetadataMap, MetadataValue};
+use tonic::metadata::MetadataValue;
 use tracing_subscriber::{
     EnvFilter, Layer, Registry, fmt::format::FmtSpan, layer::SubscriberExt as _,
 };
@@ -67,7 +68,7 @@ impl Drop for OtelGuard {
 pub async fn initialize_opentelemetry_providers(
     app_config: &AppConfig,
 ) -> Result<OtelGuard, Error> {
-    if !app_config.otel.enabled {
+    if app_config.otel.sdk_disabled {
         tracing::info!("OpenTelemetry is disabled, only stdout logging will be used");
         let stdout_fmt_layer = stdout_layer(app_config);
         let subscriber = Registry::default().with(stdout_fmt_layer);
@@ -151,7 +152,7 @@ fn stdout_layer(app_config: &AppConfig) -> impl Layer<tracing_subscriber::Regist
         .with_file(true)
         .with_line_number(true)
         // Only log spans when otel is enabled
-        .with_span_events(if app_config.otel.enabled {
+        .with_span_events(if !app_config.otel.sdk_disabled {
             FmtSpan::NEW | FmtSpan::CLOSE
         } else {
             FmtSpan::NONE
