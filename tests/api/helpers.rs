@@ -75,6 +75,12 @@ impl SyntheticApp {
 
     /// As [`SyntheticApp::new`], with a chance to adjust the configuration first.
     pub fn with_config(customise: impl FnOnce(&mut AppConfig)) -> Self {
+        Self::with_tessdata(|_tessdata, app_config| customise(app_config))
+    }
+
+    /// As [`SyntheticApp::new`], with a chance to add files to the tessdata directory
+    /// before its Tessdata Catalog is loaded.
+    pub fn with_tessdata(customise: impl FnOnce(&Path, &mut AppConfig)) -> Self {
         let tessdata = TempDir::new().unwrap();
         write_placeholder_model(tessdata.path(), "eng.traineddata");
 
@@ -89,7 +95,7 @@ impl SyntheticApp {
             },
             ..AppConfig::default()
         };
-        customise(&mut app_config);
+        customise(tessdata.path(), &mut app_config);
 
         Self {
             app: TestApp::with_state(AppState::from_config(app_config).unwrap()),

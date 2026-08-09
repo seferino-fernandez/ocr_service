@@ -6,6 +6,7 @@
 //! configuration through every lookup.
 
 mod discovery;
+mod metadata;
 
 use std::collections::HashSet;
 use std::io;
@@ -36,6 +37,7 @@ pub struct TesseractModel {
 #[derive(Debug)]
 pub struct TessdataCatalog {
     models: HashSet<TesseractModel>,
+    metadata: metadata::ModelMetadata,
     default_language: String,
 }
 
@@ -46,7 +48,9 @@ impl TessdataCatalog {
     ///
     /// Returns an error if the configured data path is not a directory.
     pub fn load(tesseract: &TesseractConfig, default_language: &str) -> io::Result<Self> {
-        let models = discovery::discover(Path::new(&tesseract.data_path))?;
+        let root = Path::new(&tesseract.data_path);
+        let models = discovery::discover(root)?;
+        let metadata = metadata::ModelMetadata::load(root, &models)?;
 
         if models.is_empty() {
             tracing::warn!(
@@ -58,14 +62,16 @@ impl TessdataCatalog {
 
         Ok(Self {
             models,
+            metadata,
             default_language: default_language.to_owned(),
         })
     }
 
     /// Resolves request parameters to exactly one model.
     ///
-    /// Falls back to the configured default language when none is requested, and to a
-    /// language's unnamed model when it has several and none was chosen.
+    /// Falls back to the configured default language when none is requested. For a
+    /// language with several Models, it chooses the unnamed Model first and then an
+    /// optional metadata default.
     ///
     /// # Errors
     ///
@@ -110,17 +116,31 @@ impl TessdataCatalog {
             return Ok(only_match);
         }
 
-        // Several models for this language: prefer the one with no model name, otherwise
-        // the caller has to choose.
-        matching
+        // Several models for this language: prefer the unnamed Model, then an optional
+        // sidecar default, otherwise the caller has to choose.
+        if let Some(unnamed_model) = matching
             .iter()
             .find(|candidate| candidate.model.is_none())
             .copied()
-            .ok_or_else(|| {
-                ErrorType::InvalidRequest(format!(
-                    "Multiple models available for language '{language}', please specify a model"
-                ))
-            })
+        {
+            return Ok(unnamed_model);
+        }
+
+        if let Some(default_model) = self.metadata.default_for(language) {
+            return matching
+                .iter()
+                .find(|candidate| candidate.model.as_deref() == Some(default_model))
+                .copied()
+                .ok_or_else(|| {
+                    ErrorType::InvalidRequest(format!(
+                        "Multiple models available for language '{language}', please specify a model"
+                    ))
+                });
+        }
+
+        Err(ErrorType::InvalidRequest(format!(
+            "Multiple models available for language '{language}', please specify a model"
+        )))
     }
 
     /// Every available model, sorted by language and then by model name.
@@ -134,6 +154,13 @@ impl TessdataCatalog {
             .map(|model| LanguageSummary {
                 language: model.language.clone(),
                 model: model.model.clone(),
+                description: self
+                    .metadata
+                    .description_for(&model.language, model.model.as_deref())
+                    .map(str::to_owned),
+                is_default: self
+                    .metadata
+                    .is_default(&model.language, model.model.as_deref()),
             })
             .collect();
         summaries.sort();
@@ -144,9 +171,16 @@ impl TessdataCatalog {
 #[cfg(test)]
 mod tests {
     use super::{TessdataCatalog, TesseractModel};
-    use crate::models::{error::ErrorType, images::ImagesQueryParams};
+    use crate::{
+        config::app_config::TesseractConfig,
+        models::{error::ErrorType, images::ImagesQueryParams},
+    };
     use std::collections::HashSet;
+    use std::fs::{self, File};
+    use std::io::Write as _;
+    use std::path::Path;
     use std::path::PathBuf;
+    use tempfile::TempDir;
 
     fn model(language: &str, name: Option<&str>) -> TesseractModel {
         let relative_path = match name {
@@ -164,6 +198,7 @@ mod tests {
     fn catalog(models: &[TesseractModel]) -> TessdataCatalog {
         TessdataCatalog {
             models: models.iter().cloned().collect::<HashSet<_>>(),
+            metadata: super::metadata::ModelMetadata::default(),
             default_language: "eng".to_owned(),
         }
     }
@@ -173,6 +208,29 @@ mod tests {
             language: language.map(str::to_owned),
             model: name.map(str::to_owned),
         }
+    }
+
+    fn create_file(directory: &Path, name: &str, contents: &[u8]) {
+        let mut file = File::create(directory.join(name)).expect("could not create test file");
+        file.write_all(contents).expect("could not write test file");
+    }
+
+    fn named_sme_models() -> TempDir {
+        let tessdata = TempDir::new().expect("could not create tessdata directory");
+        let language_directory = tessdata.path().join("sme");
+        fs::create_dir(&language_directory).expect("could not create language directory");
+        create_file(&language_directory, "sme_bible.traineddata", b"test data");
+        create_file(&language_directory, "sme_dict.traineddata", b"test data");
+        tessdata
+    }
+
+    fn load_catalog(tessdata: &TempDir) -> std::io::Result<TessdataCatalog> {
+        TessdataCatalog::load(
+            &TesseractConfig {
+                data_path: tessdata.path().to_string_lossy().into_owned(),
+            },
+            "eng",
+        )
     }
 
     /// Asserts that resolution failed with the given `InvalidRequest` message.
@@ -281,6 +339,108 @@ mod tests {
             catalog.resolve(&params(None, None)),
             "Language 'eng' is not available",
         );
+    }
+
+    #[test]
+    fn no_models_toml_keeps_named_models_requiring_an_explicit_choice() {
+        let tessdata = named_sme_models();
+        let catalog = load_catalog(&tessdata).expect("catalog should load without metadata");
+
+        assert_invalid_request(
+            catalog.resolve(&params(Some("sme"), None)),
+            "Multiple models available for language 'sme', please specify a model",
+        );
+
+        let summaries = catalog.list();
+        assert!(
+            summaries
+                .iter()
+                .all(|summary| summary.description.is_none() && !summary.is_default)
+        );
+    }
+
+    #[test]
+    fn models_toml_default_resolves_a_language_without_a_model_parameter() {
+        let tessdata = named_sme_models();
+        create_file(
+            &tessdata.path().join("sme"),
+            "models.toml",
+            br#"default = "sme_bible""#,
+        );
+        let catalog = load_catalog(&tessdata).expect("catalog should load with metadata");
+
+        let resolved = catalog
+            .resolve(&params(Some("sme"), None))
+            .expect("metadata default should resolve");
+
+        assert_eq!(resolved.model.as_deref(), Some("sme_bible"));
+    }
+
+    #[test]
+    fn models_toml_default_for_a_missing_model_stops_startup() {
+        let tessdata = named_sme_models();
+        create_file(
+            &tessdata.path().join("sme"),
+            "models.toml",
+            br#"default = "sme_missing""#,
+        );
+
+        let error = load_catalog(&tessdata).expect_err("missing metadata default must fail");
+        let message = error.to_string();
+
+        assert!(message.contains("models.toml"));
+        assert!(message.contains("sme_missing"));
+    }
+
+    #[test]
+    fn malformed_models_toml_stops_startup() {
+        let tessdata = named_sme_models();
+        create_file(&tessdata.path().join("sme"), "models.toml", b"default = [");
+
+        let error = load_catalog(&tessdata).expect_err("malformed metadata must fail");
+        let message = error.to_string();
+
+        assert!(message.contains("models.toml"));
+        assert!(message.contains("Could not parse model metadata file"));
+    }
+
+    #[test]
+    fn models_toml_descriptions_surface_through_list() {
+        let tessdata = named_sme_models();
+        create_file(
+            &tessdata.path().join("sme"),
+            "models.toml",
+            br#"default = "sme_bible"
+
+[models.sme_bible]
+description = "Trained on the 1895 North Sami bible"
+
+[models.sme_dict]
+description = "Trained on dictionary scans, 400dpi"
+"#,
+        );
+        let catalog = load_catalog(&tessdata).expect("catalog should load with metadata");
+        let summaries = catalog.list();
+
+        let bible = summaries
+            .iter()
+            .find(|summary| summary.model.as_deref() == Some("sme_bible"))
+            .expect("sme_bible should be listed");
+        assert_eq!(
+            bible.description.as_deref(),
+            Some("Trained on the 1895 North Sami bible")
+        );
+        assert!(bible.is_default);
+
+        let dictionary = summaries
+            .iter()
+            .find(|summary| summary.model.as_deref() == Some("sme_dict"))
+            .expect("sme_dict should be listed");
+        assert_eq!(
+            dictionary.description.as_deref(),
+            Some("Trained on dictionary scans, 400dpi")
+        );
+        assert!(!dictionary.is_default);
     }
 
     #[test]

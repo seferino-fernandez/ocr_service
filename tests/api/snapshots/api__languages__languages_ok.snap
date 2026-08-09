@@ -3,9 +3,15 @@ source: tests/api/languages.rs
 expression: body
 ---
 languages:
-  - language: chi_sim
+  - description: ~
+    is_default: false
+    language: chi_sim
     model: chi_sim
-  - language: chi_sim
+  - description: ~
+    is_default: false
+    language: chi_sim
     model: chi_sim_vert
-  - language: eng
+  - description: ~
+    is_default: false
+    language: eng
     model: ~

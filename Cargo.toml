@@ -43,6 +43,7 @@ thiserror = "2.0.20"
 tesseract-rs = { version = "0.4.0", features = ["build-tesseract"] }
 image = "0.25.10"
 walkdir = "2.5.0"
+toml = "1.1.4"
 
 # OpenTelemetry
 opentelemetry = { version = "0.32.0", features = ["logs", "metrics", "trace", "internal-logs"] }

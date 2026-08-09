@@ -21,4 +21,9 @@ pub struct LanguageSummary {
     /// The unique model of the Tesseract language model. Absent if there is only one
     /// model for the language.
     pub model: Option<String>,
+    /// A human-readable explanation of the model's intended material, when supplied by
+    /// the language's metadata sidecar.
+    pub description: Option<String>,
+    /// Whether this is the language's configured default model.
+    pub is_default: bool,
 }

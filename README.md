@@ -148,9 +148,24 @@ curl http://localhost:8080/api/v1/languages
 ```json
 {
   "languages": [
-    { "language": "chi_sim", "model": "chi_sim" },
-    { "language": "chi_sim", "model": "chi_sim_vert" },
-    { "language": "eng", "model": null }
+    {
+      "language": "chi_sim",
+      "model": "chi_sim",
+      "description": null,
+      "is_default": false
+    },
+    {
+      "language": "chi_sim",
+      "model": "chi_sim_vert",
+      "description": "Vertical Simplified Chinese",
+      "is_default": true
+    },
+    {
+      "language": "eng",
+      "model": null,
+      "description": null,
+      "is_default": false
+    }
   ]
 }
 ```
@@ -159,6 +174,26 @@ A `model` of `null` means the language has a single trained model, so requests n
 the `language` parameter. Where a language has several models, pass both — see
 [ADR 0001](./docs/adr/0001-languages-response-omits-filesystem-paths.md) for why the
 response carries no filesystem paths.
+
+#### Model metadata
+
+For a Language with several named Models, add an optional `models.toml` to that Language's
+directory under `TESSDATA_PATH`. It can describe Models for API consumers and nominate the
+one used when an image request gives the Language but omits `model`:
+
+```toml
+default = "sme_bible"
+
+[models.sme_bible]
+description = "Trained on the 1895 North Sami bible"
+
+[models.sme_dict]
+description = "Trained on dictionary scans, 400dpi"
+```
+
+The `default` must name a `.traineddata` file in the same Language directory, otherwise
+the service refuses to start. Without `models.toml`, Model resolution keeps its existing
+behaviour and `description` is `null` while `is_default` is `false`.
 
 ### Health Check
 
