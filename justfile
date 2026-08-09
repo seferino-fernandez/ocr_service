@@ -51,6 +51,14 @@ clean:
 docker-build:
     docker build -t {{IMAGE_NAME}} .
 
+# Build and smoke-test the Debian runtime that dynamically links system Tesseract.
+docker-smoke-system-tesseract:
+    scripts/smoke-docker-image.sh system-tesseract
+
+# Build and smoke-test the default distroless runtime with bundled Tesseract.
+docker-smoke-bundled-tesseract:
+    scripts/smoke-docker-image.sh bundled-tesseract
+
 # Run Docker image
 docker-run:
     docker run -e OTEL_SDK_DISABLED=true {{IMAGE_NAME}}

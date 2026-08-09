@@ -54,3 +54,14 @@ jobs:
               run: cargo fmt --all --check
             - name: Run cargo clippy
               run: cargo clippy --all-targets --no-default-features --features bundled-tesseract -- -D warnings
+
+    system-tesseract-image:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  lfs: true
+            - name: Install just
+              uses: taiki-e/install-action@just
+            - name: Build and smoke-test the system Tesseract image
+              run: just docker-smoke-system-tesseract
