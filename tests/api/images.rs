@@ -5,7 +5,7 @@
 
 use axum::{
     body::Body,
-    http::{Request, StatusCode, header::CONTENT_TYPE},
+    http::{Request, Response, StatusCode, header::CONTENT_TYPE},
 };
 use http_body_util::BodyExt as _;
 use tokio::fs::read;
@@ -27,6 +27,16 @@ fn images_request(query: &str, body: Body) -> Request<Body> {
         .header(CONTENT_TYPE, multipart_content_type())
         .body(body)
         .unwrap()
+}
+
+/// Reads the recognized text from a successful images response.
+async fn recognized_text(response: Response<Body>) -> String {
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    body.get("text")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
 }
 
 #[tokio::test]
@@ -51,6 +61,60 @@ async fn test_images_endpoint_tessdoc_introduction() {
     ]}, {
         insta::assert_yaml_snapshot!(body);
     });
+}
+
+#[tokio::test]
+async fn a_character_whitelist_restricts_recognition() {
+    let app = TestApp::new();
+    let image_data = read("tests/images/tessdoc-introduction.png").await.unwrap();
+
+    let unrestricted = app
+        .request(images_request(
+            "",
+            multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+        ))
+        .await;
+    assert_eq!(unrestricted.status(), StatusCode::OK);
+    let unrestricted = recognized_text(unrestricted).await;
+    assert!(unrestricted.chars().any(char::is_alphabetic));
+
+    let digits_only = app
+        .request(images_request(
+            "?whitelist=0123456789",
+            multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+        ))
+        .await;
+    assert_eq!(digits_only.status(), StatusCode::OK);
+    let digits_only = recognized_text(digits_only).await;
+    assert!(
+        digits_only
+            .chars()
+            .any(|character| character.is_ascii_digit())
+    );
+    assert!(!digits_only.chars().any(char::is_alphabetic));
+}
+
+#[tokio::test]
+async fn a_character_blacklist_excludes_characters_from_recognition() {
+    let app = TestApp::new();
+    let image_data = read("tests/images/tessdoc-introduction.png").await.unwrap();
+
+    let response = app
+        .request(images_request(
+            "?blacklist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+            multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+        ))
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = recognized_text(response).await;
+    assert!(text.chars().any(|character| character.is_ascii_digit()));
+    assert!(
+        !text
+            .chars()
+            .any(|character| character.is_ascii_alphabetic()),
+        "got {text:?}"
+    );
 }
 
 #[tokio::test]
@@ -107,6 +171,63 @@ async fn a_model_without_a_language_is_rejected() {
     assert_eq!(
         error_message(response).await,
         "Language must be specified when model is provided"
+    );
+}
+
+#[tokio::test]
+async fn an_out_of_range_page_segmentation_mode_is_rejected() {
+    let synthetic = SyntheticApp::new();
+
+    let response = synthetic
+        .app
+        .request(images_request(
+            "?psm=99",
+            multipart_body("image.png", Some("image/png"), TINY_PNG),
+        ))
+        .await;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        error_message(response).await,
+        "Invalid psm value 99: valid range is 0..=13"
+    );
+}
+
+#[tokio::test]
+async fn an_out_of_range_ocr_engine_mode_is_rejected() {
+    let synthetic = SyntheticApp::new();
+
+    let response = synthetic
+        .app
+        .request(images_request(
+            "?oem=9",
+            multipart_body("image.png", Some("image/png"), TINY_PNG),
+        ))
+        .await;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        error_message(response).await,
+        "Invalid oem value 9: valid range is 0..=3"
+    );
+}
+
+#[tokio::test]
+async fn a_non_positive_source_resolution_is_rejected() {
+    let synthetic = SyntheticApp::new();
+
+    let response = synthetic
+        .app
+        .request(images_request(
+            "?dpi=0",
+            multipart_body("image.png", Some("image/png"), TINY_PNG),
+        ))
+        .await;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        error_message(response).await,
+        "Invalid dpi value 0: valid range is 1..=2147483647"
     );
 }
 

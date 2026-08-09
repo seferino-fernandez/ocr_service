@@ -4,7 +4,7 @@ use crate::{
         error::ErrorType,
         images::{ImagesForm, ImagesQueryParams, ImagesResponse},
     },
-    ocr::OcrEngine,
+    ocr::{OcrEngine, RecognitionOptions},
 };
 use axum::{
     extract::{Multipart, Query, State},
@@ -15,6 +15,12 @@ use axum::{
 ///
 /// multipart: The multipart form data containing the image file.
 /// language: (Optional) The language to use for the OCR. Defaults to "eng".
+/// model: (Optional) The Model to use for the Language.
+/// psm: (Optional) Page segmentation mode, from 0 through 13.
+/// oem: (Optional) OCR Engine mode, from 0 through 3.
+/// dpi: (Optional) Positive source resolution in pixels per inch.
+/// whitelist: (Optional) Characters to restrict Recognition to.
+/// blacklist: (Optional) Characters to exclude from Recognition.
 ///
 /// # Errors
 ///
@@ -43,6 +49,13 @@ pub async fn images(
 
     // Resolve the request's language and model to exactly one Tesseract model.
     let tesseract_model = state.catalog.resolve(&params)?;
+    let options = RecognitionOptions::try_new(
+        params.psm,
+        params.oem,
+        params.dpi,
+        params.whitelist,
+        params.blacklist,
+    )?;
 
     let field = multipart
         .next_field()
@@ -57,7 +70,10 @@ pub async fn images(
 
     let image_bytes = field.bytes().await?;
 
-    let text = state.ocr.recognize(image_bytes, tesseract_model).await?;
+    let text = state
+        .ocr
+        .recognize(image_bytes, tesseract_model, options)
+        .await?;
 
     Ok(Json(ImagesResponse { text }))
 }

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use axum::body::Bytes;
 use image::ImageReader;
-use tesseract_rs::TesseractAPI;
+use tesseract_rs::{TessPageSegMode, TesseractAPI};
 use thiserror::Error;
 
 use crate::config::app_config::TesseractConfig;
@@ -37,6 +37,17 @@ const BYTES_PER_PIXEL_C_INT: i32 = 3;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum OcrError {
+    /// A recognition option is outside the range Tesseract accepts.
+    #[error("Invalid {parameter} value {value}: valid range is {valid_range}")]
+    InvalidRecognitionOption {
+        /// The query parameter being validated.
+        parameter: &'static str,
+        /// The rejected value.
+        value: i32,
+        /// The accepted range.
+        valid_range: &'static str,
+    },
+
     /// The upload's content type is not an image format the engine accepts.
     #[error("Invalid file type: {file_type}. File types allowed: {allowed}")]
     UnsupportedContentType {
@@ -66,6 +77,79 @@ pub enum OcrError {
     /// Tesseract could not extract text from the image.
     #[error("Something went wrong while extracting the text: {0}")]
     TextExtraction(String),
+}
+
+/// Per-request tuning for one Recognition.
+///
+/// The default leaves Tesseract's existing configuration untouched.
+#[derive(Clone, Debug, Default)]
+pub struct RecognitionOptions {
+    page_seg_mode: Option<TessPageSegMode>,
+    ocr_engine_mode: Option<i32>,
+    source_resolution: Option<i32>,
+    whitelist: Option<String>,
+    blacklist: Option<String>,
+}
+
+impl RecognitionOptions {
+    /// Validates and constructs per-request Recognition tuning.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OcrError::InvalidRecognitionOption`] when `psm` or `oem` is outside its
+    /// accepted range, or when `dpi` is not positive.
+    pub fn try_new(
+        psm: Option<i32>,
+        oem: Option<i32>,
+        dpi: Option<i32>,
+        whitelist: Option<String>,
+        blacklist: Option<String>,
+    ) -> Result<Self, OcrError> {
+        let page_seg_mode = psm
+            .map(|value| {
+                if (0..=13).contains(&value) {
+                    Ok(TessPageSegMode::from_int(value))
+                } else {
+                    Err(OcrError::InvalidRecognitionOption {
+                        parameter: "psm",
+                        value,
+                        valid_range: "0..=13",
+                    })
+                }
+            })
+            .transpose()?;
+        let ocr_engine_mode = validate_range("oem", oem, 0..=3, "0..=3")?;
+        let source_resolution = validate_range("dpi", dpi, 1..=i32::MAX, "1..=2147483647")?;
+
+        Ok(Self {
+            page_seg_mode,
+            ocr_engine_mode,
+            source_resolution,
+            whitelist,
+            blacklist,
+        })
+    }
+}
+
+fn validate_range(
+    parameter: &'static str,
+    value: Option<i32>,
+    valid_values: std::ops::RangeInclusive<i32>,
+    valid_range: &'static str,
+) -> Result<Option<i32>, OcrError> {
+    value
+        .map(|value| {
+            if valid_values.contains(&value) {
+                Ok(value)
+            } else {
+                Err(OcrError::InvalidRecognitionOption {
+                    parameter,
+                    value,
+                    valid_range,
+                })
+            }
+        })
+        .transpose()
 }
 
 /// Performs OCR against the Tesseract models in a configured data directory.
@@ -114,6 +198,7 @@ impl OcrEngine {
         &self,
         image_bytes: Bytes,
         model: &TesseractModel,
+        options: RecognitionOptions,
     ) -> Result<String, OcrError> {
         let data_path = self.data_path.clone();
         let relative_path = model.relative_path.clone();
@@ -124,7 +209,7 @@ impl OcrEngine {
         );
 
         tokio::task::spawn_blocking(move || {
-            recognize_blocking(&data_path, &relative_path, &image_bytes)
+            recognize_blocking(&data_path, &relative_path, &image_bytes, &options)
         })
         .await
         .map_err(|join_error| OcrError::Engine {
@@ -142,6 +227,7 @@ fn recognize_blocking(
     data_path: &Path,
     relative_path: &str,
     image_bytes: &[u8],
+    options: &RecognitionOptions,
 ) -> Result<String, OcrError> {
     let image = ImageReader::new(Cursor::new(image_bytes))
         .with_guessed_format()
@@ -170,11 +256,47 @@ fn recognize_blocking(
     let raw_image_data = rgb_image.into_raw();
 
     let api = TesseractAPI::new();
-    api.init(data_path, relative_path)
-        .map_err(|error| OcrError::Engine {
+    if let Some(ocr_engine_mode) = options.ocr_engine_mode {
+        let data_path = data_path.to_str().ok_or_else(|| OcrError::Engine {
             stage: "performing OCR",
-            detail: error.to_string(),
+            detail: "the tessdata path is not valid UTF-8".to_owned(),
         })?;
+        api.init_2(data_path, relative_path, ocr_engine_mode)
+            .map_err(|error| OcrError::Engine {
+                stage: "performing OCR",
+                detail: error.to_string(),
+            })?;
+    } else {
+        api.init(data_path, relative_path)
+            .map_err(|error| OcrError::Engine {
+                stage: "performing OCR",
+                detail: error.to_string(),
+            })?;
+    }
+
+    if let Some(page_seg_mode) = options.page_seg_mode {
+        api.set_page_seg_mode(page_seg_mode)
+            .map_err(|error| OcrError::Engine {
+                stage: "setting the page segmentation mode",
+                detail: error.to_string(),
+            })?;
+    }
+
+    if let Some(whitelist) = &options.whitelist {
+        api.set_variable("tessedit_char_whitelist", whitelist)
+            .map_err(|error| OcrError::Engine {
+                stage: "setting the character whitelist",
+                detail: error.to_string(),
+            })?;
+    }
+
+    if let Some(blacklist) = &options.blacklist {
+        api.set_variable("tessedit_char_blacklist", blacklist)
+            .map_err(|error| OcrError::Engine {
+                stage: "setting the character blacklist",
+                detail: error.to_string(),
+            })?;
+    }
 
     api.set_image(
         &raw_image_data,
@@ -188,13 +310,21 @@ fn recognize_blocking(
         detail: error.to_string(),
     })?;
 
+    if let Some(source_resolution) = options.source_resolution {
+        api.set_source_resolution(source_resolution)
+            .map_err(|error| OcrError::Engine {
+                stage: "setting the source resolution",
+                detail: error.to_string(),
+            })?;
+    }
+
     api.get_utf8_text()
         .map_err(|error| OcrError::TextExtraction(error.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ALLOWED_FILE_TYPES, OcrEngine, OcrError};
+    use super::{ALLOWED_FILE_TYPES, OcrEngine, OcrError, RecognitionOptions};
 
     #[test]
     fn every_allowed_content_type_is_accepted() {
@@ -240,7 +370,11 @@ mod tests {
         };
 
         let error = engine
-            .recognize(axum::body::Bytes::from_static(b"not an image"), &model)
+            .recognize(
+                axum::body::Bytes::from_static(b"not an image"),
+                &model,
+                RecognitionOptions::default(),
+            )
             .await
             .expect_err("expected a decode failure");
 

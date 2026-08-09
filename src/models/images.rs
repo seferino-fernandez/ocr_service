@@ -21,11 +21,24 @@ pub struct ImagesForm {
     file: String,
 }
 
-#[derive(Debug, Deserialize, IntoParams)]
+#[derive(Debug, Default, Deserialize, IntoParams)]
 #[non_exhaustive]
 pub struct ImagesQueryParams {
     /// (Optional) The language to use for the OCR. Defaults to "eng".
     pub language: Option<String>,
     /// (Optional) The model to use for the OCR. Defaults to "eng".
     pub model: Option<String>,
+    /// (Optional) Tesseract page segmentation mode. Valid values are 0 through 13.
+    #[param(minimum = 0, maximum = 13)]
+    pub psm: Option<i32>,
+    /// (Optional) Tesseract OCR Engine mode. Valid values are 0 through 3.
+    #[param(minimum = 0, maximum = 3)]
+    pub oem: Option<i32>,
+    /// (Optional) Source resolution in pixels per inch. Must be positive.
+    #[param(minimum = 1)]
+    pub dpi: Option<i32>,
+    /// (Optional) Characters to restrict recognition to.
+    pub whitelist: Option<String>,
+    /// (Optional) Characters to exclude from recognition.
+    pub blacklist: Option<String>,
 }

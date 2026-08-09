@@ -207,6 +207,7 @@ mod tests {
         ImagesQueryParams {
             language: language.map(str::to_owned),
             model: name.map(str::to_owned),
+            ..Default::default()
         }
     }
 

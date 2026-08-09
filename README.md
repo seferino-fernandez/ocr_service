@@ -166,6 +166,22 @@ curl -X POST -F "image=@./tests/images/chinese-simplified-sign.jpg" \
 "http://localhost:8080/api/v1/images?language=chi_sim&model=chi_sim"
 ```
 
+Recognition can be tuned per request with optional query parameters:
+
+- `psm`: Tesseract page segmentation mode (`0` through `13`).
+- `oem`: Tesseract OCR Engine mode (`0` through `3`).
+- `dpi`: positive source resolution in pixels per inch.
+- `whitelist`: characters to restrict Recognition to.
+- `blacklist`: characters to exclude from Recognition.
+
+Omitting all five preserves Tesseract's default Recognition behavior. For example, this
+request treats the image as a single text line at 300 DPI and recognizes digits only:
+
+```bash
+curl -X POST -F "image=@./tests/images/tessdoc-introduction.png" \
+"http://localhost:8080/api/v1/images?language=eng&psm=7&dpi=300&whitelist=0123456789"
+```
+
 **Get all available languages and models.**
 
 ```bash
