@@ -40,6 +40,7 @@ pub struct AppConfig {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    pub max_blocking_threads: usize,
     pub file_upload_max_size: usize,
     pub file_upload_max_size_enabled: bool,
     pub environment: String,
@@ -85,12 +86,18 @@ impl Default for ServerConfig {
         Self {
             host: DEFAULT_SERVER_HOST.to_owned(),
             port: DEFAULT_SERVER_PORT,
+            max_blocking_threads: default_server_max_blocking_threads(),
             file_upload_max_size: DEFAULT_SERVER_FILE_UPLOAD_MAX_SIZE,
             file_upload_max_size_enabled: DEFAULT_SERVER_FILE_UPLOAD_MAX_SIZE_ENABLED,
             environment: DEFAULT_SERVER_ENVIRONMENT.to_owned(),
             timeout: Duration::from_secs(DEFAULT_SERVER_REQUEST_TIMEOUT),
         }
     }
+}
+
+/// Chooses a CPU-sized bound for the blocking pool when it is not configured explicitly.
+fn default_server_max_blocking_threads() -> usize {
+    std::thread::available_parallelism().map_or(1, |parallelism| parallelism.get())
 }
 
 impl Default for ServiceConfig {
@@ -146,6 +153,11 @@ impl AppConfig {
                     .unwrap_or(DEFAULT_SERVER_PORT.to_string())
                     .parse::<u16>()
                     .unwrap_or(DEFAULT_SERVER_PORT),
+                max_blocking_threads: env::var("SERVER_MAX_BLOCKING_THREADS")
+                    .ok()
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .filter(|threads| *threads > 0)
+                    .unwrap_or_else(default_server_max_blocking_threads),
                 file_upload_max_size: env::var("SERVER_FILE_UPLOAD_MAX_SIZE")
                     .unwrap_or(DEFAULT_SERVER_FILE_UPLOAD_MAX_SIZE.to_string())
                     .parse::<usize>()

@@ -40,6 +40,11 @@ The `TESSDATA_PATH` environment variable allows you to specify where the Tessera
 1. Update the environment variable in your `.env` file
 2. If using Docker or Docker Compose, pass the same path as a build argument to ensure your data gets copied into the container correctly
 
+`SERVER_MAX_BLOCKING_THREADS` caps Tokio's blocking pool, which OCR Service uses for
+CPU-bound Recognition. It defaults to the host's available parallelism (falling back to
+one thread if that cannot be determined). Set it to a positive integer when the service's
+CPU allocation is lower or higher than the host-wide value.
+
 #### Download Tesseract Data Files
 
 The OCR Service requires the Tesseract data files to be downloaded into the [tesseract](./tesseract) directory. You can download the files manually via these repositories:
