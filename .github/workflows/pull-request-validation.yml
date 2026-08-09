@@ -65,3 +65,14 @@ jobs:
               uses: taiki-e/install-action@just
             - name: Build and smoke-test the system Tesseract image
               run: just docker-smoke-system-tesseract
+
+    bundled-tesseract-image:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  lfs: true
+            - name: Install just
+              uses: taiki-e/install-action@just
+            - name: Build and smoke-test the bundled Tesseract image
+              run: just docker-smoke-bundled-tesseract
