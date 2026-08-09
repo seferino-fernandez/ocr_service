@@ -7,19 +7,19 @@ use std::fs::{self, File};
 use std::io::Write as _;
 use std::path::Path;
 
-use axum::{Router, body::Body, http::Request, http::Response};
+use axum::{body::Body, http::Request, http::Response};
 use http_body_util::BodyExt as _;
 use tempfile::TempDir;
 use tower::ServiceExt as _;
 
 use ocr_service::{
-    AppState,
+    AppRouter, AppState,
     config::app_config::{AppConfig, TesseractConfig, app_config},
     router,
 };
 
 pub struct TestApp {
-    pub router: Router,
+    pub router: AppRouter,
 }
 
 impl TestApp {
@@ -63,6 +63,7 @@ impl TestApp {
 /// only requests that fail before Tesseract is invoked are meaningful here.
 pub struct SyntheticApp {
     pub app: TestApp,
+    pub state: AppState,
     // Deleted on drop, so it has to outlive the app reading from it.
     _tessdata: TempDir,
 }
@@ -97,8 +98,11 @@ impl SyntheticApp {
         };
         customise(tessdata.path(), &mut app_config);
 
+        let state = AppState::from_config(app_config).unwrap();
+
         Self {
-            app: TestApp::with_state(AppState::from_config(app_config).unwrap()),
+            app: TestApp::with_state(state.clone()),
+            state,
             _tessdata: tessdata,
         }
     }
