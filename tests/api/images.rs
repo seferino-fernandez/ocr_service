@@ -39,6 +39,24 @@ async fn recognized_text(response: Response<Body>) -> String {
         .to_owned()
 }
 
+/// Runs Recognition for the real document fixture with the given query string.
+async fn recognize_tessdoc(query: &str) -> Response<Body> {
+    let app = TestApp::new();
+    let image_data = read("tests/images/tessdoc-introduction.png").await.unwrap();
+
+    app.request(images_request(
+        query,
+        multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+    ))
+    .await
+}
+
+/// Reads a native-format response body as UTF-8 text.
+async fn native_output(response: Response<Body>) -> String {
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    String::from_utf8(body.to_vec()).unwrap()
+}
+
 #[tokio::test]
 async fn test_images_endpoint_tessdoc_introduction() {
     let app = TestApp::new();
@@ -53,14 +71,133 @@ async fn test_images_endpoint_tessdoc_introduction() {
 
     let response = app.request(req).await;
     assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(CONTENT_TYPE).unwrap(),
+        "application/json"
+    );
 
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let object = body.as_object().unwrap();
+    assert_eq!(object.len(), 2, "got {body}");
+    assert!(object.contains_key("text"), "got {body}");
+    let confidence = object
+        .get("confidence")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap();
+    assert!((0..=100).contains(&confidence), "got {confidence}");
     insta::with_settings!({filters => vec![
         (r"\\n\*", r"\ne"),
     ]}, {
         insta::assert_yaml_snapshot!(body);
     });
+}
+
+#[tokio::test]
+async fn text_format_returns_json_with_real_confidence() {
+    let response = recognize_tessdoc("?format=text").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(CONTENT_TYPE).unwrap(),
+        "application/json"
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let object = body.as_object().unwrap();
+    assert_eq!(object.len(), 2, "got {body}");
+    assert!(
+        object
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
+    let confidence = object
+        .get("confidence")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap();
+    assert!((0..=100).contains(&confidence), "got {confidence}");
+}
+
+#[tokio::test]
+async fn hocr_format_returns_native_hocr() {
+    let response = recognize_tessdoc("?format=hocr").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(CONTENT_TYPE).unwrap(),
+        "text/vnd.hocr+html"
+    );
+    let body = native_output(response).await;
+    assert!(
+        body.contains("class='ocr_page'") || body.contains("ocr_line"),
+        "got {body:?}"
+    );
+}
+
+#[tokio::test]
+async fn alto_format_returns_native_alto_xml() {
+    let response = recognize_tessdoc("?format=alto").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(CONTENT_TYPE).unwrap(),
+        "application/xml"
+    );
+    let body = native_output(response).await;
+    assert!(body.trim_start().starts_with("<?xml"), "got {body:?}");
+    assert!(body.contains("<alto xmlns="), "got {body:?}");
+    assert!(body.trim_end().ends_with("</alto>"), "got {body:?}");
+}
+
+#[tokio::test]
+async fn tsv_format_returns_native_tesseract_tsv() {
+    let response = recognize_tessdoc("?format=tsv").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(CONTENT_TYPE).unwrap(),
+        "text/tab-separated-values"
+    );
+    let body = native_output(response).await;
+    let mut lines = body.lines();
+    assert_eq!(
+        lines.next().unwrap(),
+        "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext"
+    );
+    let first_row = lines.next().unwrap();
+    assert_eq!(first_row.split('\t').count(), 12, "got {first_row:?}");
+}
+
+#[tokio::test]
+async fn box_format_returns_native_tesseract_box_file() {
+    let response = recognize_tessdoc("?format=box").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/plain");
+    let body = native_output(response).await;
+    let fields = body
+        .lines()
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .collect::<Vec<_>>();
+    assert_eq!(fields.len(), 6, "got {fields:?}");
+    for coordinate in &fields[1..5] {
+        coordinate.parse::<i32>().unwrap();
+    }
+    assert_eq!(fields.last().unwrap(), &"0");
+}
+
+#[tokio::test]
+async fn an_unknown_output_format_is_rejected() {
+    let response = recognize_tessdoc("?format=nonsense").await;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        error_message(response).await,
+        "Invalid format value 'nonsense': accepted values are text, hocr, alto, tsv, box"
+    );
 }
 
 #[tokio::test]

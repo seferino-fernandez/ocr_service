@@ -1,8 +1,9 @@
-//! The OCR Engine: turns image bytes into text using a Tesseract Model.
+//! The OCR Engine: performs Recognition on image bytes using a Tesseract Model.
 //!
 //! Everything Tesseract-specific lives behind this module's interface — image decoding,
-//! the pixel layout the C API expects, and the FFI call sequence. Callers supply bytes
-//! and a model and receive text, with no knowledge of how recognition happens.
+//! the pixel layout the C API expects, output representations, and the FFI call sequence.
+//! Callers supply bytes and a model and receive Recognition output, with no knowledge of
+//! how Recognition happens.
 
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -30,7 +31,7 @@ const BYTES_PER_PIXEL: u32 = 3;
 /// [`BYTES_PER_PIXEL`] in the signed width Tesseract's C API takes. Must match.
 const BYTES_PER_PIXEL_C_INT: i32 = 3;
 
-/// Everything that can go wrong turning an upload into text.
+/// Everything that can go wrong during Recognition.
 ///
 /// The variants distinguish a caller's mistake from an engine failure; mapping them onto
 /// HTTP lives in `From<OcrError> for ErrorType`, keeping this module free of HTTP.
@@ -46,6 +47,15 @@ pub enum OcrError {
         value: i32,
         /// The accepted range.
         valid_range: &'static str,
+    },
+
+    /// The requested Recognition output format is not supported.
+    #[error("Invalid format value '{value}': accepted values are {accepted}")]
+    UnsupportedOutputFormat {
+        /// The rejected query parameter value.
+        value: String,
+        /// The accepted query parameter values.
+        accepted: &'static str,
     },
 
     /// The upload's content type is not an image format the engine accepts.
@@ -89,6 +99,38 @@ pub struct RecognitionOptions {
     source_resolution: Option<i32>,
     whitelist: Option<String>,
     blacklist: Option<String>,
+    format: RecognitionFormat,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+enum RecognitionFormat {
+    #[default]
+    Text,
+    Hocr,
+    Alto,
+    Tsv,
+    Box,
+}
+
+/// The data produced by one Recognition.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum RecognitionOutput {
+    /// Plain recognized text with Tesseract's mean word confidence.
+    Text {
+        /// The recognized text.
+        text: String,
+        /// Tesseract's mean word confidence, from 0 through 100.
+        confidence: i32,
+    },
+    /// A native hOCR document.
+    Hocr(String),
+    /// A native ALTO XML document.
+    Alto(String),
+    /// Native Tesseract TSV output.
+    Tsv(String),
+    /// Native Tesseract training box output.
+    Box(String),
 }
 
 impl RecognitionOptions {
@@ -97,13 +139,15 @@ impl RecognitionOptions {
     /// # Errors
     ///
     /// Returns [`OcrError::InvalidRecognitionOption`] when `psm` or `oem` is outside its
-    /// accepted range, or when `dpi` is not positive.
+    /// accepted range, or when `dpi` is not positive. Returns
+    /// [`OcrError::UnsupportedOutputFormat`] when `format` is not supported.
     pub fn try_new(
         psm: Option<i32>,
         oem: Option<i32>,
         dpi: Option<i32>,
         whitelist: Option<String>,
         blacklist: Option<String>,
+        format: Option<String>,
     ) -> Result<Self, OcrError> {
         let page_seg_mode = psm
             .map(|value| {
@@ -120,6 +164,19 @@ impl RecognitionOptions {
             .transpose()?;
         let ocr_engine_mode = validate_range("oem", oem, 0..=3, "0..=3")?;
         let source_resolution = validate_range("dpi", dpi, 1..=i32::MAX, "1..=2147483647")?;
+        let format = match format.as_deref() {
+            None | Some("text") => RecognitionFormat::Text,
+            Some("hocr") => RecognitionFormat::Hocr,
+            Some("alto") => RecognitionFormat::Alto,
+            Some("tsv") => RecognitionFormat::Tsv,
+            Some("box") => RecognitionFormat::Box,
+            Some(value) => {
+                return Err(OcrError::UnsupportedOutputFormat {
+                    value: value.to_owned(),
+                    accepted: "text, hocr, alto, tsv, box",
+                });
+            }
+        };
 
         Ok(Self {
             page_seg_mode,
@@ -127,6 +184,7 @@ impl RecognitionOptions {
             source_resolution,
             whitelist,
             blacklist,
+            format,
         })
     }
 }
@@ -167,6 +225,12 @@ impl OcrEngine {
         }
     }
 
+    /// Returns the content types this OCR Engine can decode.
+    #[must_use]
+    pub fn allowed_content_types() -> &'static [&'static str] {
+        &ALLOWED_FILE_TYPES
+    }
+
     /// Checks that an upload's content type is one the engine can decode.
     ///
     /// Cheap enough to run before buffering the upload's bytes.
@@ -185,7 +249,7 @@ impl OcrEngine {
         })
     }
 
-    /// Extracts the text in `image_bytes` using `model`.
+    /// Performs Recognition on `image_bytes` using `model`.
     ///
     /// Decoding and the Tesseract FFI calls are blocking and CPU-bound, so they run on
     /// the blocking pool instead of occupying an async worker thread.
@@ -199,7 +263,7 @@ impl OcrEngine {
         image_bytes: Bytes,
         model: &TesseractModel,
         options: RecognitionOptions,
-    ) -> Result<String, OcrError> {
+    ) -> Result<RecognitionOutput, OcrError> {
         let data_path = self.data_path.clone();
         let relative_path = model.relative_path.clone();
 
@@ -228,7 +292,7 @@ fn recognize_blocking(
     relative_path: &str,
     image_bytes: &[u8],
     options: &RecognitionOptions,
-) -> Result<String, OcrError> {
+) -> Result<RecognitionOutput, OcrError> {
     let image = ImageReader::new(Cursor::new(image_bytes))
         .with_guessed_format()
         .map_err(|error| OcrError::Decode(error.to_string()))?
@@ -318,8 +382,76 @@ fn recognize_blocking(
             })?;
     }
 
-    api.get_utf8_text()
-        .map_err(|error| OcrError::TextExtraction(error.to_string()))
+    match options.format {
+        RecognitionFormat::Text => {
+            let text = api
+                .get_utf8_text()
+                .map_err(|error| OcrError::TextExtraction(error.to_string()))?;
+            let confidence = api.mean_text_conf().map_err(|error| OcrError::Engine {
+                stage: "extracting the mean word confidence",
+                detail: error.to_string(),
+            })?;
+
+            Ok(RecognitionOutput::Text { text, confidence })
+        }
+        RecognitionFormat::Hocr => api
+            .get_hocr_text(0)
+            .map(RecognitionOutput::Hocr)
+            .map_err(|error| OcrError::TextExtraction(error.to_string())),
+        RecognitionFormat::Alto => api
+            .get_alto_text(0)
+            .map(complete_alto_document)
+            .map(RecognitionOutput::Alto)
+            .map_err(|error| OcrError::TextExtraction(error.to_string())),
+        RecognitionFormat::Tsv => api
+            .get_tsv_text(0)
+            .map(complete_tsv_document)
+            .map(RecognitionOutput::Tsv)
+            .map_err(|error| OcrError::TextExtraction(error.to_string())),
+        RecognitionFormat::Box => api
+            .get_box_text(0)
+            .map(RecognitionOutput::Box)
+            .map_err(|error| OcrError::TextExtraction(error.to_string())),
+    }
+}
+
+/// Adds the document envelope that Tesseract's `TessAltoRenderer` places around the
+/// `<Page>` fragment returned by `TessBaseAPIGetAltoText`.
+fn complete_alto_document(page: String) -> String {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <alto xmlns=\"http://www.loc.gov/standards/alto/ns-v3#\" \
+         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" \
+         xsi:schemaLocation=\"http://www.loc.gov/standards/alto/ns-v3# \
+         http://www.loc.gov/alto/v3/alto-3-0.xsd\">\n\
+         \t<Description>\n\
+         \t\t<MeasurementUnit>pixel</MeasurementUnit>\n\
+         \t\t<sourceImageInformation>\n\
+         \t\t\t<fileName></fileName>\n\
+         \t\t</sourceImageInformation>\n\
+         \t\t<OCRProcessing ID=\"OCR_0\">\n\
+         \t\t\t<ocrProcessingStep>\n\
+         \t\t\t\t<processingSoftware>\n\
+         \t\t\t\t\t<softwareName>Tesseract</softwareName>\n\
+         \t\t\t\t\t<softwareVersion>{}</softwareVersion>\n\
+         \t\t\t\t</processingSoftware>\n\
+         \t\t\t</ocrProcessingStep>\n\
+         \t\t</OCRProcessing>\n\
+         \t</Description>\n\
+         \t<Layout>\n\
+         {page}\
+         \t</Layout>\n\
+         </alto>\n",
+        TesseractAPI::version()
+    )
+}
+
+/// Adds the column header that Tesseract's `TessTsvRenderer` places before the rows
+/// returned by `TessBaseAPIGetTsvText`.
+fn complete_tsv_document(rows: String) -> String {
+    format!(
+        "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n{rows}"
+    )
 }
 
 #[cfg(test)]

@@ -6,6 +6,9 @@ use utoipa::{IntoParams, ToSchema};
 pub struct ImagesResponse {
     /// The text extracted from the image.
     pub text: String,
+    /// Tesseract's mean word confidence, from 0 through 100.
+    #[schema(minimum = 0, maximum = 100)]
+    pub confidence: i32,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -41,4 +44,6 @@ pub struct ImagesQueryParams {
     pub whitelist: Option<String>,
     /// (Optional) Characters to exclude from recognition.
     pub blacklist: Option<String>,
+    /// (Optional) Recognition output format. Defaults to `text`.
+    pub format: Option<String>,
 }

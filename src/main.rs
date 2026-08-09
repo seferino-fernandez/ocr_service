@@ -3,42 +3,29 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
-use axum::{BoxError, ServiceExt, extract::Request};
+use axum::BoxError;
 use ocr_service::AppState;
 use ocr_service::config::app_config::app_config;
 use ocr_service::telemetry::initialize_opentelemetry_providers;
 use tokio::net::TcpListener;
 
-fn main() -> Result<(), BoxError> {
+#[tokio::main]
+async fn main() -> Result<(), BoxError> {
     // .env is used only for development, so a missing file is not an error.
     let _dotenv = dotenvy::dotenv();
 
-    let app_config = app_config().to_owned();
-    let max_blocking_threads = app_config.server.max_blocking_threads;
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .max_blocking_threads(max_blocking_threads)
-        .build()?;
-
-    runtime.block_on(run(app_config))
-}
-
-async fn run(app_config: ocr_service::config::app_config::AppConfig) -> Result<(), BoxError> {
     tracing::debug!("Initializing server configuration");
+    let app_config = app_config().to_owned();
 
     // Initialize the OpenTelemetry Providers and hold the guard to keep them alive.
     let _guard = initialize_opentelemetry_providers(&app_config).await?;
-    tracing::info!(
-        max_blocking_threads = app_config.server.max_blocking_threads,
-        "Configured Tokio blocking pool"
-    );
 
     // Start the server.
     let server_address = format!("{}:{}", app_config.server.host, app_config.server.port);
     tracing::info!("Starting server on {}", server_address);
     let listener = TcpListener::bind(&server_address).await?;
     let router = ocr_service::router(AppState::from_config(app_config)?);
-    axum::serve(listener, ServiceExt::<Request>::into_make_service(router))
+    axum::serve(listener, router.into_make_service())
         .with_graceful_shutdown(shutdown_server())
         .await?;
     Ok(())

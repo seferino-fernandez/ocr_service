@@ -8,8 +8,6 @@ use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
 use opentelemetry_instrumentation_tower::HTTPLayer;
-use tower::Layer as _;
-use tower_http::normalize_path::NormalizePath;
 use utoipa::OpenApi;
 pub mod config;
 pub mod middleware;
@@ -71,14 +69,11 @@ impl AppState {
 )]
 struct ApiDoc;
 
-/// The complete HTTP service, including URI normalization before route matching.
-pub type AppRouter = NormalizePath<axum::Router>;
-
 /// Assembles the HTTP router over an already-built [`AppState`].
 ///
 /// Pure assembly: all fallible work happens in [`AppState::from_config`], so this cannot
 /// fail and performs no I/O.
-pub fn router(app_state: AppState) -> AppRouter {
+pub fn router(app_state: AppState) -> axum::Router {
     // Create the router with the routes and the OpenAPI documentation.
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .nest("/api", routes::ImagesApi::router())
@@ -103,7 +98,9 @@ pub fn router(app_state: AppState) -> AppRouter {
     if let Some(limit_layer) = body_limit_layer {
         router = router.layer(limit_layer);
     }
-    router = router.layer(server::timeout_layer(&app_state.app_config.server));
+    router = router
+        .layer(server::normalize_path_layer())
+        .layer(server::timeout_layer(&app_state.app_config.server));
 
     let otel_metrics_layer = if !app_state.app_config.otel.sdk_disabled {
         Some(HTTPLayer::new())
@@ -114,7 +111,5 @@ pub fn router(app_state: AppState) -> AppRouter {
     if let Some(otel_metrics_layer) = otel_metrics_layer {
         router = router.layer(otel_metrics_layer);
     }
-    // This must wrap the completed router: `Router::layer` runs after route matching,
-    // which is too late for a middleware layer that rewrites request paths.
-    server::normalize_path_layer().layer(router.with_state(app_state))
+    router.with_state(app_state)
 }

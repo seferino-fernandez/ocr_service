@@ -4,11 +4,12 @@ use crate::{
         error::ErrorType,
         images::{ImagesForm, ImagesQueryParams, ImagesResponse},
     },
-    ocr::{OcrEngine, RecognitionOptions},
+    ocr::{OcrEngine, RecognitionOptions, RecognitionOutput},
 };
 use axum::{
     extract::{Multipart, Query, State},
-    response::Json,
+    http::header::CONTENT_TYPE,
+    response::{IntoResponse, Json, Response},
 };
 
 /// Perform OCR on an image
@@ -21,6 +22,7 @@ use axum::{
 /// dpi: (Optional) Positive source resolution in pixels per inch.
 /// whitelist: (Optional) Characters to restrict Recognition to.
 /// blacklist: (Optional) Characters to exclude from Recognition.
+/// format: (Optional) Output format: text, hocr, alto, tsv, or box. Defaults to text.
 ///
 /// # Errors
 ///
@@ -33,9 +35,13 @@ use axum::{
     request_body(content = inline(ImagesForm), content_type = "multipart/form-data"),
     params(ImagesQueryParams),
     responses(
-        (status = 200, description = "Text extracted from image successfully", body = ImagesResponse, content_type = "application/json",
-            example = json!({"text": "The text that was extracted from your image!"})
-        ),
+        (status = 200, description = "Recognition completed successfully", content(
+            (ImagesResponse = "application/json", example = json!({"text": "The text that was extracted from your image!", "confidence": 91})),
+            (String = "text/vnd.hocr+html"),
+            (String = "application/xml"),
+            (String = "text/tab-separated-values"),
+            (String = "text/plain")
+        )),
    ),
     tag = "images",
 )]
@@ -44,7 +50,7 @@ pub async fn images(
     State(state): State<AppState>,
     Query(params): Query<ImagesQueryParams>,
     mut multipart: Multipart,
-) -> Result<Json<ImagesResponse>, ErrorType> {
+) -> Result<Response, ErrorType> {
     tracing::debug!("Request received to perform OCR on image: {:?}", params);
 
     // Resolve the request's language and model to exactly one Tesseract model.
@@ -55,6 +61,7 @@ pub async fn images(
         params.dpi,
         params.whitelist,
         params.blacklist,
+        params.format,
     )?;
 
     let field = multipart
@@ -70,10 +77,26 @@ pub async fn images(
 
     let image_bytes = field.bytes().await?;
 
-    let text = state
+    let output = state
         .ocr
         .recognize(image_bytes, tesseract_model, options)
         .await?;
 
-    Ok(Json(ImagesResponse { text }))
+    Ok(match output {
+        RecognitionOutput::Text { text, confidence } => {
+            Json(ImagesResponse { text, confidence }).into_response()
+        }
+        RecognitionOutput::Hocr(document) => {
+            ([(CONTENT_TYPE, "text/vnd.hocr+html")], document).into_response()
+        }
+        RecognitionOutput::Alto(document) => {
+            ([(CONTENT_TYPE, "application/xml")], document).into_response()
+        }
+        RecognitionOutput::Tsv(document) => {
+            ([(CONTENT_TYPE, "text/tab-separated-values")], document).into_response()
+        }
+        RecognitionOutput::Box(document) => {
+            ([(CONTENT_TYPE, "text/plain")], document).into_response()
+        }
+    })
 }

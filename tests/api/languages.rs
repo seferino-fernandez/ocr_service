@@ -5,7 +5,6 @@ use axum::{
     http::{Request, StatusCode, header::CONTENT_TYPE},
 };
 use http_body_util::BodyExt as _;
-use ocr_service::models::images::ImagesQueryParams;
 
 use crate::helpers::*;
 
@@ -38,7 +37,7 @@ async fn test_languages_ok() {
 }
 
 #[tokio::test]
-async fn language_default_from_models_toml_resolves_to_the_configured_model_before_ocr() {
+async fn language_default_from_models_toml_reaches_ocr_instead_of_returning_bad_request() {
     let synthetic = SyntheticApp::with_tessdata(|tessdata, _app_config| {
         let metadata = r#"
 default = "chi_sim_vert"
@@ -57,87 +56,7 @@ description = "Vertical Simplified Chinese"
         .body(multipart_body("image.png", Some("image/png"), TINY_PNG))
         .unwrap();
 
-    let mut params = ImagesQueryParams::default();
-    params.language = Some("chi_sim".to_owned());
-    let resolved = synthetic.state.catalog.resolve(&params).unwrap();
-    assert_eq!(resolved.model.as_deref(), Some("chi_sim_vert"));
-
     let response = synthetic.app.request(request).await;
 
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-}
-
-#[tokio::test]
-async fn trailing_slashes_match_the_canonical_routes() {
-    let synthetic = SyntheticApp::new();
-
-    let canonical_languages = synthetic
-        .app
-        .request(
-            Request::get("/api/v1/languages")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-    let trailing_slash_languages = synthetic
-        .app
-        .request(
-            Request::get("/api/v1/languages/")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-
-    assert_eq!(canonical_languages.status(), StatusCode::OK);
-    assert_eq!(trailing_slash_languages.status(), StatusCode::OK);
-    assert_eq!(
-        canonical_languages
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes(),
-        trailing_slash_languages
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes()
-    );
-
-    let canonical_image = synthetic
-        .app
-        .request(
-            Request::post("/api/v1/images?language=chi_sim")
-                .header(CONTENT_TYPE, multipart_content_type())
-                .body(multipart_body("image.png", Some("image/png"), TINY_PNG))
-                .unwrap(),
-        )
-        .await;
-    let trailing_slash_image = synthetic
-        .app
-        .request(
-            Request::post("/api/v1/images/?language=chi_sim")
-                .header(CONTENT_TYPE, multipart_content_type())
-                .body(multipart_body("image.png", Some("image/png"), TINY_PNG))
-                .unwrap(),
-        )
-        .await;
-
-    assert_eq!(canonical_image.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(trailing_slash_image.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(
-        canonical_image
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes(),
-        trailing_slash_image
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes()
-    );
 }

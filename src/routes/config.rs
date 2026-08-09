@@ -5,7 +5,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::AppState;
 use crate::models::config::ConfigResponse;
 use crate::models::error::ErrorType;
-use crate::ocr::{OcrEngine, OcrError};
+use crate::ocr::OcrEngine;
 
 #[derive(OpenApi)]
 #[openapi(components(schemas(ConfigResponse)))]
@@ -39,19 +39,9 @@ pub async fn config(State(app_state): State<AppState>) -> Result<Json<ConfigResp
         server.file_upload_max_size_enabled,
         server.timeout.as_secs(),
         service.default_language.clone(),
-        allowed_file_types(),
+        OcrEngine::allowed_content_types()
+            .iter()
+            .map(|content_type| (*content_type).to_owned())
+            .collect(),
     )))
-}
-
-/// Reads the OCR Engine's accepted content types through its validation interface.
-///
-/// The Engine owns this list; keeping the conversion here avoids a second, drifting copy
-/// in the HTTP layer while `ALLOWED_FILE_TYPES` remains internal to the Engine.
-fn allowed_file_types() -> Vec<String> {
-    match OcrEngine::check_content_type("") {
-        Err(OcrError::UnsupportedContentType { allowed, .. }) => {
-            allowed.split(',').map(str::to_owned).collect()
-        }
-        Err(_) | Ok(()) => Vec::new(),
-    }
 }

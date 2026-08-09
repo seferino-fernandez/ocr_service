@@ -40,11 +40,6 @@ The `TESSDATA_PATH` environment variable allows you to specify where the Tessera
 1. Update the environment variable in your `.env` file
 2. If using Docker or Docker Compose, pass the same path as a build argument to ensure your data gets copied into the container correctly
 
-`SERVER_MAX_BLOCKING_THREADS` caps Tokio's blocking pool, which OCR Service uses for
-CPU-bound Recognition. It defaults to the host's available parallelism (falling back to
-one thread if that cannot be determined). Set it to a positive integer when the service's
-CPU allocation is lower or higher than the host-wide value.
-
 #### Download Tesseract Data Files
 
 The OCR Service requires the Tesseract data files to be downloaded into the [tesseract](./tesseract) directory. You can download the files manually via these repositories:
@@ -178,13 +173,33 @@ Recognition can be tuned per request with optional query parameters:
 - `dpi`: positive source resolution in pixels per inch.
 - `whitelist`: characters to restrict Recognition to.
 - `blacklist`: characters to exclude from Recognition.
+- `format`: output representation (`text`, `hocr`, `alto`, `tsv`, or `box`; defaults to
+  `text`).
 
-Omitting all five preserves Tesseract's default Recognition behavior. For example, this
-request treats the image as a single text line at 300 DPI and recognizes digits only:
+Omitting the five tuning parameters preserves Tesseract's default Recognition behavior;
+`format` changes only the output representation. For example, this request treats the
+image as a single text line at 300 DPI and recognizes digits only:
 
 ```bash
 curl -X POST -F "image=@./tests/images/tessdoc-introduction.png" \
 "http://localhost:8080/api/v1/images?language=eng&psm=7&dpi=300&whitelist=0123456789"
+```
+
+The default `text` representation is JSON and includes Tesseract's mean word confidence:
+
+```json
+{
+  "text": "Recognized text...",
+  "confidence": 91
+}
+```
+
+The document formats are returned directly rather than JSON-escaped. For example, this
+writes native hOCR to a file:
+
+```bash
+curl -X POST -F "image=@./tests/images/tessdoc-introduction.png" \
+"http://localhost:8080/api/v1/images?language=eng&format=hocr" --output page.hocr
 ```
 
 **Get all available languages and models.**
@@ -205,8 +220,8 @@ curl http://localhost:8080/api/v1/languages
     {
       "language": "chi_sim",
       "model": "chi_sim_vert",
-      "description": "Vertical Simplified Chinese",
-      "is_default": true
+      "description": null,
+      "is_default": false
     },
     {
       "language": "eng",
@@ -215,6 +230,19 @@ curl http://localhost:8080/api/v1/languages
       "is_default": false
     }
   ]
+}
+```
+
+The bundled `tesseract/` tree has no `models.toml`, so every bundled entry has a `null`
+description and `is_default: false`. A deployment can annotate and select a default Model
+with a sidecar, in which case an entry can instead look like:
+
+```json
+{
+  "language": "sme",
+  "model": "sme_bible",
+  "description": "Trained on the 1895 North Sami bible",
+  "is_default": true
 }
 ```
 
