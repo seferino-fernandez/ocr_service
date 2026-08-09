@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use crate::config::app_config::AppConfig;
-use anyhow::Error;
+use crate::config::app_config::{AppConfig, DEFAULT_OTEL_METRIC_EXPORT_INTERVAL};
+use anyhow::{Error, anyhow};
 use opentelemetry::{self, KeyValue, global, trace::TracerProvider};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::tonic_types::metadata::MetadataMap;
@@ -22,6 +22,21 @@ use tracing_subscriber::{
 };
 
 const OTEL_PROVIDER_OPENOBSERVE: &str = "openobserve";
+
+/// Reads an OTLP endpoint that is required whenever the OTel SDK is enabled.
+///
+/// # Errors
+///
+/// Returns an error naming the environment variable that must be set. Previously a
+/// missing endpoint panicked the process during startup.
+fn required_endpoint<'a>(endpoint: Option<&'a String>, env_var: &str) -> Result<&'a str, Error> {
+    endpoint.map(String::as_str).ok_or_else(|| {
+        anyhow!(
+            "OpenTelemetry is enabled but no endpoint is configured: set {env_var} or \
+             OTEL_EXPORTER_OTLP_ENDPOINT, or disable the SDK with OTEL_SDK_DISABLED=true"
+        )
+    })
+}
 
 #[must_use = "Recommend holding with 'let _guard = ' pattern to ensure the final telemetry data is sent to the server"]
 pub struct OtelGuard {
@@ -72,8 +87,7 @@ pub async fn initialize_opentelemetry_providers(
         tracing::info!("OpenTelemetry is disabled, only stdout logging will be used");
         let stdout_fmt_layer = stdout_layer(app_config);
         let subscriber = Registry::default().with(stdout_fmt_layer);
-        tracing::subscriber::set_global_default(subscriber)
-            .expect("Could not set up global logger");
+        tracing::subscriber::set_global_default(subscriber)?;
 
         return Ok(OtelGuard {
             tracer_provider: None,
@@ -83,7 +97,10 @@ pub async fn initialize_opentelemetry_providers(
     }
     tracing::info!(
         "Initializing OpenTelemetry with traces endpoint: {}",
-        app_config.otel.traces_endpoint.as_ref().unwrap()
+        required_endpoint(
+            app_config.otel.traces_endpoint.as_ref(),
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+        )?
     );
 
     global::set_text_map_propagator(TraceContextPropagator::new());
@@ -111,7 +128,7 @@ pub async fn initialize_opentelemetry_providers(
         .with(otel_logging_layer)
         .with(otel_tracing_layer);
 
-    tracing::subscriber::set_global_default(subscriber).expect("Could not set up global logger");
+    tracing::subscriber::set_global_default(subscriber)?;
     tracing::info!("OpenTelemetry initialization complete");
     Ok(OtelGuard {
         tracer_provider: Some(tracer_provider),
@@ -132,6 +149,10 @@ pub async fn initialize_opentelemetry_providers(
 // Note: This will also drop events from crates like `tonic` etc. even when
 // they are used outside the OTLP Exporter. For more details, see:
 // https://github.com/open-telemetry/opentelemetry-rust/issues/761
+#[expect(
+    clippy::unwrap_used,
+    reason = "the directives are string literals fixed at compile time, so parsing is infallible"
+)]
 fn otel_env_filter() -> EnvFilter {
     EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info".into())
@@ -163,6 +184,10 @@ fn stdout_layer(app_config: &AppConfig) -> impl Layer<tracing_subscriber::Regist
 // Create a new tracing::Fmt layer to print the logs to stdout. It has a
 // default filter of `info` level and above, and `debug` and above for logs
 // from OpenTelemetry crates. The filter levels can be customized as needed.
+#[expect(
+    clippy::unwrap_used,
+    reason = "the directive is a string literal fixed at compile time, so parsing is infallible"
+)]
 fn stdout_env_filter() -> EnvFilter {
     EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info".into())
@@ -203,8 +228,11 @@ fn init_tracer_provider(
 fn init_span_exporter(app_config: &AppConfig) -> Result<SpanExporter, Error> {
     let mut builder = SpanExporter::builder()
         .with_tonic()
-        .with_endpoint(app_config.otel.traces_endpoint.clone().unwrap());
-    if let Some(metadata) = get_metadata_map(app_config) {
+        .with_endpoint(required_endpoint(
+            app_config.otel.traces_endpoint.as_ref(),
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        )?);
+    if let Some(metadata) = get_metadata_map(app_config)? {
         builder = builder.with_metadata(metadata);
     }
     let span_exporter = builder.build()?;
@@ -216,9 +244,12 @@ fn init_logging_provider(
 ) -> Result<opentelemetry_sdk::logs::SdkLoggerProvider, Error> {
     let mut builder = LogExporter::builder()
         .with_tonic()
-        .with_endpoint(app_config.otel.logs_endpoint.clone().unwrap());
+        .with_endpoint(required_endpoint(
+            app_config.otel.logs_endpoint.as_ref(),
+            "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        )?);
 
-    if let Some(metadata) = get_metadata_map(app_config) {
+    if let Some(metadata) = get_metadata_map(app_config)? {
         builder = builder.with_metadata(metadata);
     }
     let logs_exporter = builder.build()?;
@@ -230,31 +261,35 @@ fn init_logging_provider(
     Ok(logger_provider)
 }
 
-fn get_metadata_map(app_config: &AppConfig) -> Option<MetadataMap> {
+fn get_metadata_map(app_config: &AppConfig) -> Result<Option<MetadataMap>, Error> {
     if app_config.otel_provider.provider == Some(OTEL_PROVIDER_OPENOBSERVE.to_string()) {
-        return Some(openobserve_metadata(app_config));
+        return openobserve_metadata(app_config).map(Some);
     }
-    None
+    Ok(None)
 }
 
-fn openobserve_metadata(app_config: &AppConfig) -> MetadataMap {
+/// Builds the gRPC metadata OpenObserve expects on every OTLP export.
+///
+/// # Errors
+///
+/// Returns an error if a configured value is not a valid gRPC metadata value. Previously
+/// a malformed `OTEL_PROVIDER_AUTH_TOKEN` panicked the process during startup.
+fn openobserve_metadata(app_config: &AppConfig) -> Result<MetadataMap, Error> {
     let mut map = MetadataMap::with_capacity(3);
-    if let Some(auth_token) = &app_config.otel_provider.auth_token {
-        map.insert(
-            "authorization",
-            MetadataValue::try_from(auth_token).unwrap(),
-        );
+    let provider = &app_config.otel_provider;
+    for (key, value) in [
+        ("authorization", provider.auth_token.as_ref()),
+        ("organization", provider.organization.as_ref()),
+        ("stream-name", provider.stream_name.as_ref()),
+    ] {
+        if let Some(value) = value {
+            let metadata_value = MetadataValue::try_from(value).map_err(|_ignored| {
+                anyhow!("Configured OpenObserve `{key}` is not a valid gRPC metadata value")
+            })?;
+            map.insert(key, metadata_value);
+        }
     }
-    if let Some(organization) = &app_config.otel_provider.organization {
-        map.insert(
-            "organization",
-            MetadataValue::try_from(organization).unwrap(),
-        );
-    }
-    if let Some(stream_name) = &app_config.otel_provider.stream_name {
-        map.insert("stream-name", MetadataValue::try_from(stream_name).unwrap());
-    }
-    map
+    Ok(map)
 }
 
 fn init_meter_provider(
@@ -263,16 +298,24 @@ fn init_meter_provider(
     let mut builder = opentelemetry_otlp::MetricExporter::builder()
         .with_tonic()
         .with_temporality(Temporality::Cumulative)
-        .with_endpoint(app_config.otel.metrics_endpoint.clone().unwrap())
+        .with_endpoint(required_endpoint(
+            app_config.otel.metrics_endpoint.as_ref(),
+            "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+        )?)
         .with_timeout(Duration::from_secs(3));
 
-    if let Some(metadata) = get_metadata_map(app_config) {
+    if let Some(metadata) = get_metadata_map(app_config)? {
         builder = builder.with_metadata(metadata);
     }
     let metric_exporter = builder.build()?;
 
     let periodic_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter)
-        .with_interval(app_config.otel.metric_export_interval.unwrap())
+        .with_interval(
+            app_config
+                .otel
+                .metric_export_interval
+                .unwrap_or(DEFAULT_OTEL_METRIC_EXPORT_INTERVAL),
+        )
         .build();
 
     let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()

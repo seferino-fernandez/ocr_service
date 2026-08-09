@@ -9,7 +9,11 @@ pub struct ImagesResponse {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
-#[allow(unused)]
+#[expect(
+    dead_code,
+    reason = "the field exists so utoipa can describe the multipart body in the OpenAPI schema; \
+              the multipart payload itself is read through the Multipart extractor"
+)]
 #[non_exhaustive]
 pub struct ImagesForm {
     /// The image to process.

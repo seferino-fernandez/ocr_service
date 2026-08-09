@@ -2,8 +2,6 @@ use std::env;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use super::error::ServerError;
-
 const DEFAULT_SERVER_REQUEST_TIMEOUT: u64 = 15;
 const DEFAULT_SERVER_HOST: &str = "0.0.0.0";
 const DEFAULT_SERVER_PORT: u16 = 8080;
@@ -18,16 +16,17 @@ const DEFAULT_MAX_ACCESS_CONTROL_AGE: u64 = 600; // 10 minutes
 
 const DEFAULT_TESSERACT_DATA_PATH: &str = "tesseract";
 
+/// Interval between OpenTelemetry metric exports when `OTEL_METRIC_EXPORT_INTERVAL` is unset.
+pub const DEFAULT_OTEL_METRIC_EXPORT_INTERVAL: Duration = Duration::from_millis(10_000);
+
+/// The process-wide application configuration, read from the environment on first use.
 pub fn app_config() -> &'static AppConfig {
     static INSTANCE: OnceLock<AppConfig> = OnceLock::new();
 
-    INSTANCE.get_or_init(|| {
-        AppConfig::load_from_env()
-            .unwrap_or_else(|ex| panic!("Unable to load application configuration: {ex:?}"))
-    })
+    INSTANCE.get_or_init(AppConfig::load_from_env)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub service: ServiceConfig,
@@ -58,7 +57,7 @@ pub struct ServiceConfig {
     pub default_language: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OtelProviderConfig {
     pub provider: Option<String>,
     pub organization: Option<String>,
@@ -81,9 +80,66 @@ pub struct TesseractConfig {
     pub data_path: String,
 }
 
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            host: DEFAULT_SERVER_HOST.to_owned(),
+            port: DEFAULT_SERVER_PORT,
+            file_upload_max_size: DEFAULT_SERVER_FILE_UPLOAD_MAX_SIZE,
+            file_upload_max_size_enabled: DEFAULT_SERVER_FILE_UPLOAD_MAX_SIZE_ENABLED,
+            environment: DEFAULT_SERVER_ENVIRONMENT.to_owned(),
+            timeout: Duration::from_secs(DEFAULT_SERVER_REQUEST_TIMEOUT),
+        }
+    }
+}
+
+impl Default for ServiceConfig {
+    fn default() -> Self {
+        Self {
+            name: DEFAULT_SERVICE_NAME.to_owned(),
+            default_language: DEFAULT_SERVICE_DEFAULT_LANGUAGE.to_owned(),
+        }
+    }
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            max_access_control_age: Duration::from_secs(DEFAULT_MAX_ACCESS_CONTROL_AGE),
+        }
+    }
+}
+
+impl Default for OtelConfig {
+    /// Defaults to a disabled SDK, so constructing a config without touching the
+    /// environment never attempts to export telemetry.
+    fn default() -> Self {
+        Self {
+            sdk_disabled: true,
+            service_name: None,
+            traces_endpoint: None,
+            logs_endpoint: None,
+            metrics_endpoint: None,
+            metric_export_interval: None,
+        }
+    }
+}
+
+impl Default for TesseractConfig {
+    fn default() -> Self {
+        Self {
+            data_path: DEFAULT_TESSERACT_DATA_PATH.to_owned(),
+        }
+    }
+}
+
 impl AppConfig {
-    fn load_from_env() -> Result<AppConfig, ServerError> {
-        Ok(AppConfig {
+    /// Reads the application configuration from the environment.
+    ///
+    /// Every field falls back to its documented default, so this cannot fail.
+    #[must_use]
+    pub fn load_from_env() -> AppConfig {
+        AppConfig {
             server: ServerConfig {
                 host: env::var("SERVER_HOST").unwrap_or(DEFAULT_SERVER_HOST.to_string()),
                 port: env::var("SERVER_PORT")
@@ -131,7 +187,7 @@ impl AppConfig {
                 data_path: env::var("TESSDATA_PATH")
                     .unwrap_or(DEFAULT_TESSERACT_DATA_PATH.to_string()),
             },
-        })
+        }
     }
 
     /// Loads OpenTelemetry related configuration from environment variables.
@@ -170,10 +226,12 @@ impl AppConfig {
                 metrics_endpoint: env::var("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
                     .ok()
                     .or(common_otlp_endpoint),
-                metric_export_interval: env::var("OTEL_METRIC_EXPORT_INTERVAL")
-                    .ok()
-                    .and_then(|interval_str| interval_str.parse::<u64>().ok())
-                    .map(Duration::from_millis),
+                metric_export_interval: Some(
+                    env::var("OTEL_METRIC_EXPORT_INTERVAL")
+                        .ok()
+                        .and_then(|interval_str| interval_str.parse::<u64>().ok())
+                        .map_or(DEFAULT_OTEL_METRIC_EXPORT_INTERVAL, Duration::from_millis),
+                ),
             }
         }
     }

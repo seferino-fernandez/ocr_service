@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::io;
+use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
 use opentelemetry_instrumentation_tower::HTTPLayer;
@@ -6,21 +7,47 @@ use utoipa::OpenApi;
 pub mod config;
 pub mod middleware;
 pub mod models;
+pub mod ocr;
 pub mod routes;
-pub mod utils;
+pub mod telemetry;
+pub mod tessdata;
 
 use config::app_config::AppConfig;
 use middleware::{security, server};
-use models::languages::TesseractModel;
-use utils::languages::get_available_languages_with_models;
+use ocr::OcrEngine;
+use tessdata::TessdataCatalog;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_scalar::{Scalar, Servable as _};
 
+/// Everything the handlers need, shared across requests.
+///
+/// Held behind `Arc`s because Axum's `State` extractor clones the state for every
+/// request; cloning the catalog itself would copy the whole model set each time.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct AppState {
-    pub app_config: AppConfig,
-    pub available_tesseract_languages: HashSet<TesseractModel>,
+    pub app_config: Arc<AppConfig>,
+    pub catalog: Arc<TessdataCatalog>,
+    pub ocr: Arc<OcrEngine>,
+}
+
+impl AppState {
+    /// Builds the application state, discovering the Tesseract models on disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configured tessdata directory cannot be read.
+    pub fn from_config(app_config: AppConfig) -> io::Result<Self> {
+        let catalog =
+            TessdataCatalog::load(&app_config.tesseract, &app_config.service.default_language)?;
+        let ocr = OcrEngine::new(&app_config.tesseract);
+
+        Ok(Self {
+            app_config: Arc::new(app_config),
+            catalog: Arc::new(catalog),
+            ocr: Arc::new(ocr),
+        })
+    }
 }
 
 #[derive(OpenApi)]
@@ -37,15 +64,11 @@ pub struct AppState {
 )]
 struct ApiDoc;
 
-pub fn router(app_config: AppConfig) -> axum::Router {
-    let available_tesseract_languages = get_available_languages_with_models(&app_config)
-        .expect("Failed to get available Tesseract languages");
-
-    let app_state = AppState {
-        app_config,
-        available_tesseract_languages,
-    };
-
+/// Assembles the HTTP router over an already-built [`AppState`].
+///
+/// Pure assembly: all fallible work happens in [`AppState::from_config`], so this cannot
+/// fail and performs no I/O.
+pub fn router(app_state: AppState) -> axum::Router {
     // Create the router with the routes and the OpenAPI documentation.
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .nest("/api", routes::ImagesApi::router())

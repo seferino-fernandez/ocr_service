@@ -11,6 +11,22 @@ The full list of crates used can be found in the [Cargo.toml](./Cargo.toml) file
 - [utoipa](https://github.com/juhaku/utoipa) - A library for generating OpenAPI documentation in Rust.
 - [opentelemetry-rust](https://github.com/open-telemetry/opentelemetry-rust) - OpenTelemetry for Rust.
 
+## Architecture
+
+The domain vocabulary is defined in [CONTEXT.md](./CONTEXT.md); architectural decisions are
+recorded in [docs/adr](./docs/adr).
+
+Two modules carry the service's behaviour:
+
+- **[`src/tessdata`](./src/tessdata)** — the Tessdata Catalog. Discovers the `.traineddata`
+  files under `TESSDATA_PATH`, resolves a request's `language`/`model` to exactly one
+  Tesseract Model, and serves the sorted listing.
+- **[`src/ocr`](./src/ocr)** — the OCR Engine. Owns accepted content types, image decoding
+  and the Tesseract FFI, and runs recognition on the blocking pool.
+
+Both are built once at startup into `AppState::from_config`, leaving `router()` as pure
+assembly. Handlers extract and delegate.
+
 ## Getting Started
 
 ### Configure the Application
@@ -128,6 +144,21 @@ curl -X POST -F "image=@./tests/images/chinese-simplified-sign.jpg" \
 ```bash
 curl http://localhost:8080/api/v1/languages
 ```
+
+```json
+{
+  "languages": [
+    { "language": "chi_sim", "model": "chi_sim" },
+    { "language": "chi_sim", "model": "chi_sim_vert" },
+    { "language": "eng", "model": null }
+  ]
+}
+```
+
+A `model` of `null` means the language has a single trained model, so requests need only
+the `language` parameter. Where a language has several models, pass both — see
+[ADR 0001](./docs/adr/0001-languages-response-omits-filesystem-paths.md) for why the
+response carries no filesystem paths.
 
 ### Health Check
 

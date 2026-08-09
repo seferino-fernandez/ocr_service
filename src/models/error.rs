@@ -1,5 +1,6 @@
 use axum::{
     Json,
+    extract::multipart::MultipartError,
     extract::rejection::JsonRejection,
     response::{IntoResponse, Response},
 };
@@ -17,6 +18,13 @@ pub enum ErrorType {
     #[error("Invalid payload.")]
     InvalidJsonBody(#[from] JsonRejection),
 
+    /// Converts from Axum's multipart extractor.
+    ///
+    /// Carried whole rather than flattened to a string, so the extractor's own status
+    /// survives — an upload over the configured limit has to stay a 413, not become a 400.
+    #[error("Invalid multipart payload.")]
+    Multipart(#[from] MultipartError),
+
     /// For errors that occur during manual validation.
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
@@ -24,6 +32,20 @@ pub enum ErrorType {
     /// Converts from any `anyhow::Error`.
     #[error("An internal server error has occurred.")]
     InternalError(#[from] anyhow::Error),
+}
+
+/// Adapts an OCR failure onto the HTTP surface.
+///
+/// A caller's bad upload is a 400; a Tesseract failure is a 500. Keeping the mapping
+/// here is what lets [`crate::ocr`] stay free of any HTTP knowledge.
+impl From<crate::ocr::OcrError> for ErrorType {
+    fn from(error: crate::ocr::OcrError) -> Self {
+        let message = error.to_string();
+        match error {
+            crate::ocr::OcrError::Engine { .. } => Self::InternalError(anyhow::anyhow!(message)),
+            _ => Self::InvalidRequest(message),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -52,6 +74,8 @@ impl IntoResponse for ErrorType {
                 },
                 StatusCode::BAD_REQUEST,
             ),
+            // Keep the extractor's own status: an oversized upload is a 413.
+            Self::Multipart(err) => (err.body_text(), err.status()),
             Self::InvalidRequest(err) => (err, StatusCode::BAD_REQUEST),
             Self::InternalError(err) => (err.to_string(), StatusCode::INTERNAL_SERVER_ERROR),
         };
