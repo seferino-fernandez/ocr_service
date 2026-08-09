@@ -4,6 +4,15 @@ IMAGE_NAME := "ocr-service"
 default:
     @just --list
 
+# The correctness gate. Mirrors .github/workflows/pull-request-validation.yml,
+# so a green `just verify` locally means a green CI. Non-zero on any failure.
+verify:
+    cargo fmt --all --check
+    cargo clippy --all-targets --all-features -- -D warnings
+    cargo check --locked
+    cargo nextest run --all-targets --all-features
+    cargo test --doc
+
 # Run all tests: full feature matrix, default features, and doctests
 test:
 	cargo nextest run --all-targets --all-features
@@ -46,7 +55,7 @@ run:
 # Build with dependency metadata embedded, then scan the binary for known vulnerabilities
 audit:
     cargo auditable build --release
-    cargo audit bin target/release/axum_service_starter
+    cargo audit bin target/release/ocr_service
 
 # Generate and open the project's API documentation in a browser
 docs:
