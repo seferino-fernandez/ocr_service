@@ -22,7 +22,8 @@ Two modules carry the service's behaviour:
   files under `TESSDATA_PATH`, resolves a request's `language`/`model` to exactly one
   Tesseract Model, and serves the sorted listing.
 - **[`src/ocr`](./src/ocr)** — the OCR Engine. Owns accepted content types, image decoding
-  and the Tesseract FFI, and runs recognition on the blocking pool.
+  and the Tesseract FFI, and runs Recognition on the blocking pool. Initialized engines
+  are retained in bounded, lazily-grown pools per Tesseract Model.
 
 Both are built once at startup into `AppState::from_config`, leaving `router()` as pure
 assembly. Handlers extract and delegate.
@@ -44,6 +45,24 @@ The `TESSDATA_PATH` environment variable allows you to specify where the Tessera
 CPU-bound Recognition. It defaults to the host's available parallelism (falling back to
 one thread if that cannot be determined). Set it to a positive integer when the service's
 CPU allocation is lower or higher than the host-wide value.
+
+`TESSERACT_POOL_SIZE` bounds the number of initialized engines retained per Tesseract
+Model. It defaults to `min(available_parallelism, 4)`, grows only when concurrent demand
+requires another engine, and waits when all engines for a Model are checked out. Set it to
+`0` to disable pooling and restore per-Recognition construction and initialization.
+
+Pooling trades disk reads and initialization latency for memory. Approximate retained
+memory is `pool size × Model size × Models actually used`; an unrequested Model consumes
+no engine memory. Best-quality Models can be large—for example, `chi_sim` is tens of
+megabytes per engine—so size the pool against both concurrency and the set of Languages
+and Models used by the deployment.
+
+`TESSERACT_RECOGNITION_TIMEOUT` defaults to 10 seconds and bounds how long the service
+waits for one Recognition. `tesseract-rs` exposes no cancellation or interrupt operation
+for an in-progress native Recognition. A timed-out request therefore fails, but its native
+call continues on the blocking thread; a checked-out engine stays isolated and does not
+return to the pool until that call finishes and its state has been cleared. A permanently
+stuck native call permanently occupies that blocking thread and pool slot.
 
 #### Download Tesseract Data Files
 

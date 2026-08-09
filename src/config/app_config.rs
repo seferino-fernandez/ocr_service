@@ -15,6 +15,7 @@ const DEFAULT_SERVICE_DEFAULT_LANGUAGE: &str = "eng";
 const DEFAULT_MAX_ACCESS_CONTROL_AGE: u64 = 600; // 10 minutes
 
 const DEFAULT_TESSERACT_DATA_PATH: &str = "tesseract";
+const DEFAULT_TESSERACT_RECOGNITION_TIMEOUT: u64 = 10;
 
 /// Interval between OpenTelemetry metric exports when `OTEL_METRIC_EXPORT_INTERVAL` is unset.
 pub const DEFAULT_OTEL_METRIC_EXPORT_INTERVAL: Duration = Duration::from_millis(10_000);
@@ -34,6 +35,7 @@ pub struct AppConfig {
     pub otel: OtelConfig,
     pub otel_provider: OtelProviderConfig,
     pub tesseract: TesseractConfig,
+    pub ocr: OcrConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +81,15 @@ pub struct OtelConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TesseractConfig {
     pub data_path: String,
+}
+
+/// Runtime limits for the OCR Engine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OcrConfig {
+    /// Maximum number of initialized engines retained for each Tesseract Model.
+    pub pool_size: usize,
+    /// Maximum time the service waits for one Recognition.
+    pub recognition_timeout: Duration,
 }
 
 impl Default for ServerConfig {
@@ -140,6 +151,20 @@ impl Default for TesseractConfig {
     }
 }
 
+impl Default for OcrConfig {
+    fn default() -> Self {
+        Self {
+            pool_size: default_tesseract_pool_size(),
+            recognition_timeout: Duration::from_secs(DEFAULT_TESSERACT_RECOGNITION_TIMEOUT),
+        }
+    }
+}
+
+/// Chooses a conservative CPU-sized per-Model engine-pool bound.
+fn default_tesseract_pool_size() -> usize {
+    std::thread::available_parallelism().map_or(1, |parallelism| parallelism.get().min(4))
+}
+
 impl AppConfig {
     /// Reads the application configuration from the environment.
     ///
@@ -198,6 +223,18 @@ impl AppConfig {
             tesseract: TesseractConfig {
                 data_path: env::var("TESSDATA_PATH")
                     .unwrap_or(DEFAULT_TESSERACT_DATA_PATH.to_string()),
+            },
+            ocr: OcrConfig {
+                pool_size: env::var("TESSERACT_POOL_SIZE")
+                    .ok()
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or_else(default_tesseract_pool_size),
+                recognition_timeout: Duration::from_secs(
+                    env::var("TESSERACT_RECOGNITION_TIMEOUT")
+                        .ok()
+                        .and_then(|value| value.parse::<u64>().ok())
+                        .unwrap_or(DEFAULT_TESSERACT_RECOGNITION_TIMEOUT),
+                ),
             },
         }
     }

@@ -3,11 +3,15 @@
     reason = "test scaffolding: a failure here means the setup itself is broken, and panicking reports that directly"
 )]
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use axum::{
     body::Body,
     http::{Request, Response, StatusCode, header::CONTENT_TYPE},
 };
 use http_body_util::BodyExt as _;
+use ocr_service::{AppState, config::app_config::AppConfig, ocr::OcrEngine};
 use tokio::fs::read;
 
 use crate::helpers::*;
@@ -49,6 +53,16 @@ async fn recognize_tessdoc(query: &str) -> Response<Body> {
         multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
     ))
     .await
+}
+
+/// Builds a test app over the real Tessdata Catalog with customized configuration.
+fn real_app_with_config(customize: impl FnOnce(&mut AppConfig)) -> (TestApp, Arc<OcrEngine>) {
+    let mut app_config = AppConfig::default();
+    customize(&mut app_config);
+    let state = AppState::from_config(app_config).unwrap();
+    let ocr = Arc::clone(&state.ocr);
+
+    (TestApp::with_state(state), ocr)
 }
 
 /// Reads a native-format response body as UTF-8 text.
@@ -229,6 +243,186 @@ async fn a_character_whitelist_restricts_recognition() {
             .any(|character| character.is_ascii_digit())
     );
     assert!(!digits_only.chars().any(char::is_alphabetic));
+}
+
+#[tokio::test]
+async fn a_character_whitelist_does_not_leak_between_recognitions() {
+    let (app, ocr) = real_app_with_config(|app_config| app_config.ocr.pool_size = 1);
+    let image_data = read("tests/images/tessdoc-introduction.png").await.unwrap();
+
+    let digits_only = app
+        .request(images_request(
+            "?whitelist=0123456789",
+            multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+        ))
+        .await;
+    assert_eq!(digits_only.status(), StatusCode::OK);
+    let digits_only = recognized_text(digits_only).await;
+    assert!(
+        digits_only
+            .chars()
+            .any(|character| character.is_ascii_digit())
+    );
+    assert!(!digits_only.chars().any(char::is_alphabetic));
+
+    let unrestricted = app
+        .request(images_request(
+            "",
+            multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+        ))
+        .await;
+    assert_eq!(unrestricted.status(), StatusCode::OK);
+    let unrestricted = recognized_text(unrestricted).await;
+    assert!(
+        unrestricted.contains("Tesseract is an open source text recognition"),
+        "got {unrestricted:?}"
+    );
+    assert_eq!(ocr.constructed_engine_count(), 1);
+}
+
+#[tokio::test]
+async fn page_segmentation_mode_does_not_leak_between_recognitions() {
+    let (app, ocr) = real_app_with_config(|app_config| app_config.ocr.pool_size = 1);
+    let image_data = read("tests/images/tessdoc-introduction.png").await.unwrap();
+
+    let single_line = app
+        .request(images_request(
+            "?psm=7",
+            multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+        ))
+        .await;
+    assert_eq!(single_line.status(), StatusCode::OK);
+    let single_line = recognized_text(single_line).await;
+
+    let full_page = app
+        .request(images_request(
+            "",
+            multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+        ))
+        .await;
+    assert_eq!(full_page.status(), StatusCode::OK);
+    let full_page = recognized_text(full_page).await;
+    assert!(
+        full_page.contains("Tesseract is an open source text recognition"),
+        "got {full_page:?}"
+    );
+    assert!(
+        full_page.lines().count() > single_line.lines().count(),
+        "single line: {single_line:?}; full page: {full_page:?}"
+    );
+    assert_eq!(ocr.constructed_engine_count(), 1);
+}
+
+#[tokio::test]
+async fn an_explicit_engine_mode_does_not_reconfigure_a_pooled_engine() {
+    let (app, ocr) = real_app_with_config(|app_config| app_config.ocr.pool_size = 1);
+    let image_data = read("tests/images/tessdoc-introduction.png").await.unwrap();
+
+    let legacy = app
+        .request(images_request(
+            "?oem=0",
+            multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+        ))
+        .await;
+    assert_eq!(legacy.status(), StatusCode::OK);
+    let legacy = recognized_text(legacy).await;
+
+    let default = app
+        .request(images_request(
+            "",
+            multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+        ))
+        .await;
+    assert_eq!(default.status(), StatusCode::OK);
+    let default = recognized_text(default).await;
+
+    assert!(!legacy.trim().is_empty(), "got {legacy:?}");
+    assert_ne!(legacy, default);
+    assert!(
+        default.contains("Tesseract is an open source text recognition"),
+        "got {default:?}"
+    );
+    assert_eq!(ocr.constructed_engine_count(), 2);
+}
+
+#[tokio::test]
+async fn repeated_recognitions_reuse_one_initialized_engine() {
+    let (app, ocr) = real_app_with_config(|app_config| app_config.ocr.pool_size = 1);
+    let image_data = read("tests/images/tessdoc-introduction.png").await.unwrap();
+
+    for _request_number in 0..2 {
+        let response = app
+            .request(images_request(
+                "",
+                multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+            ))
+            .await;
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    assert_eq!(ocr.constructed_engine_count(), 1);
+}
+
+#[tokio::test]
+async fn a_zero_pool_size_constructs_an_engine_per_recognition() {
+    let (app, ocr) = real_app_with_config(|app_config| app_config.ocr.pool_size = 0);
+    let image_data = read("tests/images/tessdoc-introduction.png").await.unwrap();
+
+    for _request_number in 0..2 {
+        let response = app
+            .request(images_request(
+                "",
+                multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+            ))
+            .await;
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    assert_eq!(ocr.constructed_engine_count(), 2);
+}
+
+#[tokio::test]
+async fn concurrent_recognitions_do_not_share_a_checked_out_engine() {
+    let (app, ocr) = real_app_with_config(|app_config| app_config.ocr.pool_size = 2);
+    let image_data = read("tests/images/tessdoc-introduction.png").await.unwrap();
+    let recognitions = (0..6).map(|_request_number| {
+        app.request(images_request(
+            "",
+            multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+        ))
+    });
+
+    for response in futures_util::future::join_all(recognitions).await {
+        assert_eq!(response.status(), StatusCode::OK);
+        let text = recognized_text(response).await;
+        assert!(
+            text.contains("Tesseract is an open source text recognition"),
+            "got {text:?}"
+        );
+    }
+    assert_eq!(ocr.constructed_engine_count(), 2);
+}
+
+#[tokio::test]
+async fn recognition_timeout_returns_a_clear_error() {
+    let (app, _ocr) = real_app_with_config(|app_config| {
+        app_config.ocr.recognition_timeout = Duration::ZERO;
+    });
+    let image_data = read("tests/images/tessdoc-introduction.png").await.unwrap();
+
+    let response = app
+        .request(images_request(
+            "",
+            multipart_body("tessdoc-introduction.png", Some("image/png"), &image_data),
+        ))
+        .await;
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(
+        error_message(response)
+            .await
+            .contains("Recognition timed out after 0 seconds")
+    );
 }
 
 #[tokio::test]

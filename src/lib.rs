@@ -47,7 +47,7 @@ impl AppState {
     pub fn from_config(app_config: AppConfig) -> io::Result<Self> {
         let catalog =
             TessdataCatalog::load(&app_config.tesseract, &app_config.service.default_language)?;
-        let ocr = OcrEngine::new(&app_config.tesseract);
+        let ocr = OcrEngine::new(&app_config.tesseract, &app_config.ocr);
 
         Ok(Self {
             app_config: Arc::new(app_config),

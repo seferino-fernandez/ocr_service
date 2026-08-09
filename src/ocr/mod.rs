@@ -5,15 +5,22 @@
 //! Callers supply bytes and a model and receive Recognition output, with no knowledge of
 //! how Recognition happens.
 
+use std::collections::HashMap;
+use std::fmt;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use axum::body::Bytes;
 use image::ImageReader;
 use tesseract_rs::{TessPageSegMode, TesseractAPI};
 use thiserror::Error;
 
-use crate::config::app_config::TesseractConfig;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+
+use crate::config::app_config::{OcrConfig, TesseractConfig};
 use crate::tessdata::TesseractModel;
 
 /// Content types the engine can decode.
@@ -211,18 +218,49 @@ fn validate_range(
 }
 
 /// Performs OCR against the Tesseract models in a configured data directory.
-#[derive(Debug)]
 pub struct OcrEngine {
     data_path: PathBuf,
+    pool_size: usize,
+    recognition_timeout: Duration,
+    pools: Mutex<HashMap<String, Arc<ModelPool>>>,
+    constructed_engine_count: Arc<AtomicUsize>,
+}
+
+impl fmt::Debug for OcrEngine {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OcrEngine")
+            .field("data_path", &self.data_path)
+            .field("pool_size", &self.pool_size)
+            .field("recognition_timeout", &self.recognition_timeout)
+            .field(
+                "constructed_engine_count",
+                &self.constructed_engine_count.load(Ordering::Relaxed),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl OcrEngine {
     /// Creates an engine reading models from the configured tessdata directory.
     #[must_use]
-    pub fn new(tesseract: &TesseractConfig) -> Self {
+    pub fn new(tesseract: &TesseractConfig, ocr: &OcrConfig) -> Self {
         Self {
             data_path: PathBuf::from(&tesseract.data_path),
+            pool_size: ocr.pool_size,
+            recognition_timeout: ocr.recognition_timeout,
+            pools: Mutex::new(HashMap::new()),
+            constructed_engine_count: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    /// Returns how many native Tesseract handles this OCR Engine has constructed.
+    ///
+    /// This diagnostic distinguishes reuse from per-request initialization without exposing
+    /// pooled handles or their mutable state.
+    #[must_use]
+    pub fn constructed_engine_count(&self) -> usize {
+        self.constructed_engine_count.load(Ordering::Relaxed)
     }
 
     /// Returns the content types this OCR Engine can decode.
@@ -264,8 +302,34 @@ impl OcrEngine {
         model: &TesseractModel,
         options: RecognitionOptions,
     ) -> Result<RecognitionOutput, OcrError> {
+        let recognition = self.recognize_within_limit(image_bytes, model, options);
+
+        match tokio::time::timeout(self.recognition_timeout, recognition).await {
+            Ok(result) => result,
+            Err(_elapsed) => Err(OcrError::Engine {
+                stage: "performing OCR",
+                detail: format!(
+                    "Recognition timed out after {} seconds; the native Tesseract call cannot be interrupted and its engine remains isolated until it finishes",
+                    self.recognition_timeout.as_secs()
+                ),
+            }),
+        }
+    }
+
+    async fn recognize_within_limit(
+        &self,
+        image_bytes: Bytes,
+        model: &TesseractModel,
+        options: RecognitionOptions,
+    ) -> Result<RecognitionOutput, OcrError> {
         let data_path = self.data_path.clone();
         let relative_path = model.relative_path.clone();
+        let constructed_engine_count = Arc::clone(&self.constructed_engine_count);
+        let pooled_engine = if self.pool_size == 0 || options.ocr_engine_mode.is_some() {
+            None
+        } else {
+            Some(self.model_pool(&relative_path).checkout().await?)
+        };
 
         tracing::debug!(
             "Running OCR with data path '{}' and model '{relative_path}'",
@@ -273,7 +337,27 @@ impl OcrEngine {
         );
 
         tokio::task::spawn_blocking(move || {
-            recognize_blocking(&data_path, &relative_path, &image_bytes, &options)
+            let image = prepare_image(&image_bytes)?;
+
+            match pooled_engine {
+                Some(mut pooled_engine) => {
+                    let api = pooled_engine.initialized_api(
+                        &data_path,
+                        &relative_path,
+                        &constructed_engine_count,
+                    )?;
+                    recognize_blocking(api, &image, &options)
+                }
+                None => {
+                    let api = initialize_api(
+                        &data_path,
+                        &relative_path,
+                        options.ocr_engine_mode,
+                        &constructed_engine_count,
+                    )?;
+                    recognize_blocking(&api, &image, &options)
+                }
+            }
         })
         .await
         .map_err(|join_error| OcrError::Engine {
@@ -281,18 +365,120 @@ impl OcrEngine {
             detail: join_error.to_string(),
         })?
     }
+
+    fn model_pool(&self, relative_path: &str) -> Arc<ModelPool> {
+        let mut pools = lock_unpoisoned(&self.pools);
+
+        Arc::clone(
+            pools
+                .entry(relative_path.to_owned())
+                .or_insert_with(|| Arc::new(ModelPool::new(self.pool_size))),
+        )
+    }
 }
 
-/// The blocking half of [`OcrEngine::recognize`].
-///
-/// The Tesseract handle is created here rather than being carried across the await, so
-/// nothing but plain data crosses onto the blocking pool.
-fn recognize_blocking(
-    data_path: &Path,
-    relative_path: &str,
-    image_bytes: &[u8],
-    options: &RecognitionOptions,
-) -> Result<RecognitionOutput, OcrError> {
+struct ModelPool {
+    idle: Mutex<Vec<TesseractAPI>>,
+    permits: Arc<Semaphore>,
+}
+
+impl ModelPool {
+    fn new(size: usize) -> Self {
+        Self {
+            idle: Mutex::new(Vec::new()),
+            permits: Arc::new(Semaphore::new(size)),
+        }
+    }
+
+    async fn checkout(self: &Arc<Self>) -> Result<PooledEngine, OcrError> {
+        let permit = Arc::clone(&self.permits)
+            .acquire_owned()
+            .await
+            .map_err(|error| OcrError::Engine {
+                stage: "waiting for an OCR engine",
+                detail: error.to_string(),
+            })?;
+        let api = lock_unpoisoned(&self.idle).pop();
+
+        Ok(PooledEngine {
+            api,
+            pool: Arc::clone(self),
+            _permit: permit,
+        })
+    }
+}
+
+struct PooledEngine {
+    api: Option<TesseractAPI>,
+    pool: Arc<ModelPool>,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl PooledEngine {
+    fn initialized_api(
+        &mut self,
+        data_path: &Path,
+        relative_path: &str,
+        constructed_engine_count: &AtomicUsize,
+    ) -> Result<&TesseractAPI, OcrError> {
+        if self.api.is_none() {
+            self.api = Some(initialize_api(
+                data_path,
+                relative_path,
+                None,
+                constructed_engine_count,
+            )?);
+        }
+
+        self.api.as_ref().ok_or_else(|| OcrError::Engine {
+            stage: "checking out an OCR engine",
+            detail: "the initialized engine was unavailable".to_owned(),
+        })
+    }
+}
+
+impl Drop for PooledEngine {
+    fn drop(&mut self) {
+        let Some(api) = self.api.take() else {
+            return;
+        };
+
+        let image_cleared = api.clear().is_ok();
+        let adaptive_state_cleared = api.clear_adaptive_classifier().is_ok();
+        let page_seg_mode_reset = api.set_page_seg_mode(TessPageSegMode::PSM_AUTO).is_ok();
+        let whitelist_reset = api.set_variable("tessedit_char_whitelist", "").is_ok();
+        let blacklist_reset = api.set_variable("tessedit_char_blacklist", "").is_ok();
+        let source_resolution_reset = api.set_source_resolution(0).is_ok();
+        if image_cleared
+            && adaptive_state_cleared
+            && page_seg_mode_reset
+            && whitelist_reset
+            && blacklist_reset
+            && source_resolution_reset
+        {
+            lock_unpoisoned(&self.pool.idle).push(api);
+        } else {
+            tracing::warn!("Discarding a pooled OCR engine because its state could not be cleared");
+        }
+    }
+}
+
+fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+struct PreparedImage {
+    raw_data: Vec<u8>,
+    width: i32,
+    height: i32,
+    bytes_per_line: i32,
+}
+
+/// Decodes and converts image bytes on the blocking pool before Tesseract initialization.
+fn prepare_image(image_bytes: &[u8]) -> Result<PreparedImage, OcrError> {
     let image = ImageReader::new(Cursor::new(image_bytes))
         .with_guessed_format()
         .map_err(|error| OcrError::Decode(error.to_string()))?
@@ -317,27 +503,20 @@ fn recognize_blocking(
         .try_into()
         .map_err(|error| OcrError::Dimensions(format!("Image height is too large: {error}")))?;
 
-    let raw_image_data = rgb_image.into_raw();
+    Ok(PreparedImage {
+        raw_data: rgb_image.into_raw(),
+        width,
+        height,
+        bytes_per_line,
+    })
+}
 
-    let api = TesseractAPI::new();
-    if let Some(ocr_engine_mode) = options.ocr_engine_mode {
-        let data_path = data_path.to_str().ok_or_else(|| OcrError::Engine {
-            stage: "performing OCR",
-            detail: "the tessdata path is not valid UTF-8".to_owned(),
-        })?;
-        api.init_2(data_path, relative_path, ocr_engine_mode)
-            .map_err(|error| OcrError::Engine {
-                stage: "performing OCR",
-                detail: error.to_string(),
-            })?;
-    } else {
-        api.init(data_path, relative_path)
-            .map_err(|error| OcrError::Engine {
-                stage: "performing OCR",
-                detail: error.to_string(),
-            })?;
-    }
-
+/// Runs one Recognition against an initialized, exclusively checked-out handle.
+fn recognize_blocking(
+    api: &TesseractAPI,
+    image: &PreparedImage,
+    options: &RecognitionOptions,
+) -> Result<RecognitionOutput, OcrError> {
     if let Some(page_seg_mode) = options.page_seg_mode {
         api.set_page_seg_mode(page_seg_mode)
             .map_err(|error| OcrError::Engine {
@@ -363,11 +542,11 @@ fn recognize_blocking(
     }
 
     api.set_image(
-        &raw_image_data,
-        width,
-        height,
+        &image.raw_data,
+        image.width,
+        image.height,
         BYTES_PER_PIXEL_C_INT,
-        bytes_per_line,
+        image.bytes_per_line,
     )
     .map_err(|error| OcrError::Engine {
         stage: "processing the image",
@@ -413,6 +592,33 @@ fn recognize_blocking(
             .map(RecognitionOutput::Box)
             .map_err(|error| OcrError::TextExtraction(error.to_string())),
     }
+}
+
+fn initialize_api(
+    data_path: &Path,
+    relative_path: &str,
+    ocr_engine_mode: Option<i32>,
+    constructed_engine_count: &AtomicUsize,
+) -> Result<TesseractAPI, OcrError> {
+    let data_path_text = data_path.to_str().ok_or_else(|| OcrError::Engine {
+        stage: "initializing the OCR engine",
+        detail: "the tessdata path is not valid UTF-8".to_owned(),
+    })?;
+    let api = TesseractAPI::new();
+    let _previous_count = constructed_engine_count.fetch_add(1, Ordering::Relaxed);
+
+    let initialization = if let Some(ocr_engine_mode) = ocr_engine_mode {
+        api.init_2(data_path_text, relative_path, ocr_engine_mode)
+    } else {
+        api.init(data_path, relative_path)
+    };
+    initialization.map_err(|error| OcrError::Engine {
+        stage: "initializing the OCR engine",
+        detail: error.to_string(),
+    })?;
+
+    tracing::debug!(model = relative_path, "Initialized an OCR engine");
+    Ok(api)
 }
 
 /// Adds the document envelope that Tesseract's `TessAltoRenderer` places around the
@@ -493,7 +699,10 @@ mod tests {
 
     #[tokio::test]
     async fn bytes_that_are_not_an_image_fail_to_decode() {
-        let engine = OcrEngine::new(&crate::config::app_config::TesseractConfig::default());
+        let engine = OcrEngine::new(
+            &crate::config::app_config::TesseractConfig::default(),
+            &crate::config::app_config::OcrConfig::default(),
+        );
         let model = crate::tessdata::TesseractModel {
             language: "eng".to_owned(),
             model: None,
