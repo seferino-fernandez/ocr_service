@@ -1,3 +1,8 @@
+#[cfg(all(feature = "bundled-tesseract", feature = "system-tesseract"))]
+compile_error!(
+    "`bundled-tesseract` and `system-tesseract` are mutually exclusive; select one Tesseract build mode"
+);
+
 use std::io;
 use std::sync::Arc;
 

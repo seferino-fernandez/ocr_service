@@ -8,25 +8,32 @@ default:
 # so a green `just verify` locally means a green CI. Non-zero on any failure.
 verify:
     cargo fmt --all --check
-    cargo clippy --all-targets --all-features -- -D warnings
-    cargo check --locked
-    cargo nextest run --all-targets --all-features
-    cargo test --doc
+    cargo clippy --all-targets --no-default-features --features bundled-tesseract -- -D warnings
+    cargo check --locked --no-default-features --features bundled-tesseract
+    cargo nextest run --all-targets --no-default-features --features bundled-tesseract
+    cargo test --doc --no-default-features --features bundled-tesseract
 
-# Run all tests: full feature matrix, default features, and doctests
+# Run all bundled-Tesseract tests and doctests.
 test:
-	cargo nextest run --all-targets --all-features
-	cargo nextest run
-	cargo test --doc
+    cargo nextest run --all-targets --no-default-features --features bundled-tesseract
+    cargo test --doc --no-default-features --features bundled-tesseract
 
-# Lint the code with Clippy
+# Lint the bundled-Tesseract build with Clippy.
 lint:
-    cargo clippy
+    cargo clippy --all-targets --no-default-features --features bundled-tesseract -- -D warnings
+
+# Deliberately exercise the system-installed Tesseract build. Requires its development
+# packages and may expose recognition differences from the bundled Tesseract version.
+verify-system-tesseract:
+    cargo clippy --all-targets --no-default-features --features system-tesseract -- -D warnings
+    cargo check --locked --no-default-features --features system-tesseract
+    cargo nextest run --all-targets --no-default-features --features system-tesseract
+    cargo test --doc --no-default-features --features system-tesseract
 
 # Format code with rustfmt and apply Clippy's auto-fixable suggestions
 format:
     cargo fmt --all
-    cargo clippy --all-targets --all-features --fix --allow-dirty --allow-staged
+    cargo clippy --all-targets --no-default-features --features bundled-tesseract --fix --allow-dirty --allow-staged
 
 # Build the project in debug mode
 build:

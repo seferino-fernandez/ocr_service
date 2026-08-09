@@ -6,6 +6,7 @@ services:
       context: ../
       args:
         - TESSDATA_PATH=tesseract
+        - TESSERACT_FEATURE=${TESSERACT_FEATURE:-bundled-tesseract}
       dockerfile: Dockerfile
     image: ocr-service
     ports:

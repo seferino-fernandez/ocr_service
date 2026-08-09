@@ -21,6 +21,8 @@ services:
             - backend
         build:
             context: ../../
+            args:
+                - TESSERACT_FEATURE=${TESSERACT_FEATURE:-bundled-tesseract}
             dockerfile: Dockerfile
         image: ocr-service
         ports:

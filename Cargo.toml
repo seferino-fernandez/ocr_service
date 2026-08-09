@@ -10,6 +10,11 @@ workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = ["bundled-tesseract"]
+bundled-tesseract = ["tesseract-rs/build-tesseract"]
+system-tesseract = ["tesseract-rs/use-system-tesseract"]
+
 [[bin]]
 path = "src/main.rs"
 name = "ocr_service"
@@ -40,7 +45,7 @@ uuid = { version = "1.24.0", features = ["v7", "serde"] }
 dotenvy = "0.15.7"
 anyhow = "1.0.104"
 thiserror = "2.0.20"
-tesseract-rs = { version = "0.4.0", features = ["build-tesseract"] }
+tesseract-rs = { version = "0.4.0", default-features = false }
 image = "0.25.10"
 walkdir = "2.5.0"
 toml = "1.1.4"

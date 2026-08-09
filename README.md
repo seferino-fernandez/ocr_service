@@ -57,6 +57,28 @@ With everything else set up, all you need to do now is:
 cargo run
 ```
 
+### OCR Engine Build Modes
+
+By default, OCR Service compiles the bundled Tesseract 5.5.2 and Leptonica sources. This
+requires no system Tesseract installation and remains the path used by `cargo build` and
+CI.
+
+For faster local builds, opt into a system-installed Tesseract instead:
+
+```shell
+# macOS
+brew install tesseract
+
+# Debian or Ubuntu
+sudo apt install libtesseract-dev libleptonica-dev
+
+cargo run --no-default-features --features system-tesseract
+```
+
+The system path links the Tesseract version provided by your package manager, which may
+differ from the bundled 5.5.2. Recognition output can therefore vary slightly between
+the two paths.
+
 ### Running Tests
 
 Run tests:
@@ -103,6 +125,9 @@ docker run -p 8080:8080 ocr-service
 # If using a custom TESSDATA_PATH, specify it as both a build argument and environment variable
 docker build --build-arg TESSDATA_PATH=your/custom/path -t ocr-service .
 docker run -p 8080:8080 -e TESSDATA_PATH=your/custom/path ocr-service
+
+# To link the image against the distro's Tesseract instead of the bundled 5.5.2 sources
+docker build --build-arg TESSERACT_FEATURE=system-tesseract -t ocr-service .
 ```
 
 If using Docker Compose, you can specify the custom path in the compose file:
@@ -114,10 +139,12 @@ services:
             context: ../
             args:
                 - TESSDATA_PATH=your/custom/path
+                - TESSERACT_FEATURE=${TESSERACT_FEATURE:-bundled-tesseract}
             dockerfile: Dockerfile
 ```
 
 Make sure the `TESSDATA_PATH` build argument matches the environment variable you've set in your `.env` file.
+Set `TESSERACT_FEATURE=system-tesseract` before starting Compose to use the distro library.
 
 ## API Documentation
 
