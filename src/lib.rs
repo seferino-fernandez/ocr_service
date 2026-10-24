@@ -7,7 +7,7 @@ use std::io;
 use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
-use opentelemetry_instrumentation_tower::HTTPLayer;
+use opentelemetry_instrumentation_tower::http::server::Layer as OtelHttpLayer;
 use tower::Layer as _;
 use tower_http::normalize_path::NormalizePath;
 use utoipa::OpenApi;
@@ -106,7 +106,7 @@ pub fn router(app_state: AppState) -> AppRouter {
     router = router.layer(server::timeout_layer(&app_state.app_config.server));
 
     let otel_metrics_layer = if !app_state.app_config.otel.sdk_disabled {
-        Some(HTTPLayer::new())
+        Some(OtelHttpLayer::new())
     } else {
         None
     };

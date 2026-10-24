@@ -20,10 +20,10 @@ path = "src/main.rs"
 name = "ocr_service"
 
 [dependencies]
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 axum = { version = "0.8.9", features = ["multipart"] }
 tower = { version = "0.5.3", features = [] }
-tower-http = { version = "0.7.0", features = [
+tower-http = { version = "0.7.1", features = [
     "trace",
     "timeout",
     "cors",
@@ -32,44 +32,44 @@ tower-http = { version = "0.7.0", features = [
 ] }
 http = "1.5.0"
 http-body = "1.1.0"
-http-body-util = "0.1.4"
-hyper = "1.11.0"
-reqwest = { version = "0.13.4" }
+http-body-util = "0.1.5"
+hyper = "1.12.0"
+reqwest = { version = "0.13.5" }
 tonic = { version = "0.14.6", features = ["tls-native-roots"] }
-futures-util = "0.3.33"
+futures-util = "0.3.34"
 pin-project-lite = "0.2.17"
 chrono = { version = "0.4.45", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-uuid = { version = "1.24.0", features = ["v7", "serde"] }
+serde_json = "1.0.154"
+uuid = { version = "1.29.0", features = ["v7", "serde"] }
 dotenvy = "0.15.7"
 anyhow = "1.0.104"
-thiserror = "2.0.20"
+thiserror = "2.0.21"
 tesseract-rs = { version = "0.4.0", default-features = false }
 image = "0.25.10"
 walkdir = "2.5.0"
-toml = "1.1.4"
+toml = "1.1.8"
 
 # OpenTelemetry
-opentelemetry = { version = "0.32.0", features = ["logs", "metrics", "trace", "internal-logs"] }
-opentelemetry_sdk = { version = "0.32.1", features = ["rt-tokio", "logs", "metrics", "trace", "spec_unstable_metrics_views"] }
-opentelemetry-semantic-conventions = { version = "0.32.1", features = ["semconv_experimental"] }
-opentelemetry-otlp = { version = "0.32.0", features = ["grpc-tonic","tls-roots"] }
-opentelemetry-appender-tracing = { version = "0.32.0", features = [] }
-opentelemetry-instrumentation-tower = {version = "0.18.0", features = ["axum"] }
+opentelemetry = { version = "0.33.1", features = ["logs", "metrics", "trace", "internal-logs"] }
+opentelemetry_sdk = { version = "0.33.1", features = ["rt-tokio", "logs", "metrics", "trace", "spec_unstable_metrics_views"] }
+opentelemetry-semantic-conventions = { version = "0.33.1", features = ["semconv_experimental"] }
+opentelemetry-otlp = { version = "0.33.1", features = ["grpc-tonic","tls-roots"] }
+opentelemetry-appender-tracing = { version = "0.33.1", features = [] }
+opentelemetry-instrumentation-tower = {version = "0.19.0", features = ["axum"] }
 
 # Tracing
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
-tracing-opentelemetry = { version = "0.33.0", features = ["metrics"] }
+tracing-opentelemetry = { version = "0.34.0", features = ["metrics"] }
 
 # OpenAPI Documentation
-utoipa-axum = "0.2.0"
-utoipa = "5.5.0"
-utoipa-scalar = { version = "0.3.0", features = ["axum"] }
+utoipa-axum = "0.3.0"
+utoipa = "6.0.0"
+utoipa-scalar = { version = "0.4.0", features = ["axum"] }
 
 [dev-dependencies]
-insta = { version = "1.48.0", features = ["yaml", "filters"] }
+insta = { version = "1.49.0", features = ["yaml", "filters"] }
 tempfile = "3.27.0"
 
 [profile.dev.package]
